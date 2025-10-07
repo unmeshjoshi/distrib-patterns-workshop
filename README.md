@@ -31,3 +31,6 @@ For detailed build instructions, see:
 - (Coming soon)
 
 See per-section READMEs for detailed instructions.
+
+### Note on LLM usage.
+Boilerplate (Gradle/Maven config, CI workflows, PlantUML, selected test scaffolding) was drafted with an LLM. Core algorithms and invariants are handwritten and covered by tests. I use AI for scaffolding only, and verify the output to refactor it by hand when needed. LLMs are great at translating and summarising the code. I encourage the users of this repo to use LLMs that way and get the most out of this code.

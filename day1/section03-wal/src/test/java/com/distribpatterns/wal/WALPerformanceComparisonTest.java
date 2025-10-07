@@ -8,17 +8,16 @@ import com.distribpatterns.common.TestUtils;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.RandomAccessFile;
-import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
+
+import static org.junit.Assert.assertTrue;
 
 /**
- * Compares naive WAL implementation vs optimized WAL implementation.
+ * Compares basic WAL implementation vs optimized WAL implementation.
  * 
  * Demonstrates the performance impact of:
- * 1. Buffered writes
- * 2. Group commit
- * 3. Pre-allocation
+ * 1. Buffered writes (reduces system calls)
+ * 2. Group commit (reduces fsync calls)
+ * 3. Pre-allocation (prevents filesystem fragmentation)
  */
 public class WALPerformanceComparisonTest {
     
@@ -38,89 +37,109 @@ public class WALPerformanceComparisonTest {
     }
     
     @Test
-    public void compareNaiveVsOptimized() throws IOException {
+    public void compareBasicVsOptimized() throws IOException {
         int numEntries = 1000;
         byte[] data = "This is a test WAL entry with some data".getBytes();
+
+        logBeginWriting(numEntries, data);
+
+        // Test 1: Basic implementation (WriteAheadLog)
+        log("Test 1: BASIC WAL (WriteAheadLog with fsync after each write)", "-".repeat(70));
+
+        long basicTime = testBasicWAL(numEntries, data);
+
+        newLine();
+
+        // Clean up for next test
+        deleteDirectory(walDir);
+        walDir = TestUtils.tempDir("wal-perf-test");
         
-        System.out.println("=".repeat(70));
-        System.out.println("WAL Performance Comparison");
-        System.out.println("=".repeat(70));
-        System.out.println("Writing " + numEntries + " entries of " + data.length + " bytes each");
-        System.out.println();
-        
-        // Test 1: Naive implementation
-        System.out.println("Test 1: NAIVE WAL (fsync after each write)");
-        System.out.println("-".repeat(70));
-        long naiveTime = testNaiveWAL(numEntries, data);
-        System.out.println();
-        
-        // Test 2: Optimized implementation  
-        System.out.println("Test 2: OPTIMIZED WAL (buffered writes + group commit + pre-allocation)");
-        System.out.println("-".repeat(70));
+        // Test 2: Optimized implementation (OptimizedWriteAheadLog)
+        log("Test 2: OPTIMIZED WAL (buffered writes + group commit + pre-allocation)", "-".repeat(70));
+
         long optimizedTime = testOptimizedWAL(numEntries, data);
-        System.out.println();
-        
+        newLine();
+
+        assertTrue("Optimized time should lower than basic log write time", basicTime > optimizedTime);
+
         // Comparison
-        System.out.println("=".repeat(70));
-        System.out.println("RESULTS");
-        System.out.println("=".repeat(70));
-        System.out.println("Naive WAL:     " + naiveTime + "ms");
+        logComparison(basicTime, optimizedTime, numEntries);
+    }
+
+    private static void logComparison(long basicTime, long optimizedTime, int numEntries) {
+        log("=".repeat(70), "RESULTS");
+        log("=".repeat(70), "Basic WAL:     " + basicTime + "ms");
         System.out.println("Optimized WAL: " + optimizedTime + "ms");
-        System.out.println("Speedup:       " + String.format("%.1fx faster", (double) naiveTime / optimizedTime));
-        System.out.println();
-        System.out.println("Key Insights:");
-        System.out.println("1. Buffered writes reduce system calls by 100-1000x");
-        System.out.println("2. Group commit reduces fsync calls from " + numEntries + " to ~10-20");
-        System.out.println("3. Pre-allocation prevents filesystem fragmentation");
-        System.out.println("4. Combined optimizations provide " + String.format("%.0fx", (double) naiveTime / optimizedTime) + " performance improvement!");
+
+        if (optimizedTime > 0) {
+            System.out.println("Speedup:       " + String.format("%.1fx faster", (double) basicTime / optimizedTime));
+        }
+
+        newLine();
+        log("Key Insights:", "1. Buffered writes reduce system calls by 100-1000x");
+        log("2. Group commit reduces fsync calls from " + numEntries + " to ~10-20", "3. Pre-allocation prevents filesystem fragmentation");
+
+        if (optimizedTime > 0) {
+            System.out.println("4. Combined optimizations provide " +
+                             String.format("%.0fx", (double) basicTime / optimizedTime) +
+                             " performance improvement!");
+        }
+
         System.out.println("=".repeat(70));
     }
-    
+
+    private static void log(String x, String repeat) {
+        System.out.println(x);
+        System.out.println(repeat);
+    }
+
+    private static void newLine() {
+        System.out.println();
+    }
+
+    private static void logBeginWriting(int numEntries, byte[] data) {
+        log("=".repeat(70), "WAL Performance Comparison");
+        log("=".repeat(70), "Writing " + numEntries + " entries of " + data.length + " bytes each");
+        newLine();
+    }
+
     /**
-     * Naive WAL: Direct writes with fsync after each entry.
-     * This is how a simple implementation might look.
+     * Basic WAL: Uses the standard WriteAheadLog implementation.
+     * This implementation does fsync after each write.
      */
-    private long testNaiveWAL(int numEntries, byte[] data) throws IOException {
-        File walFile = new File(walDir, "naive-wal.log");
-        RandomAccessFile raf = new RandomAccessFile(walFile, "rw");
-        FileChannel channel = raf.getChannel();
+    private long testBasicWAL(int numEntries, byte[] data) throws IOException {
+        Config config = new Config(walDir.getAbsolutePath());
+        WriteAheadLog wal = WriteAheadLog.openWAL(config);
         
         long startTime = System.currentTimeMillis();
         
         try {
-            ByteBuffer lengthBuf = ByteBuffer.allocate(4);
-            ByteBuffer dataBuf = ByteBuffer.wrap(data);
-            
             for (int i = 0; i < numEntries; i++) {
-                // Write length
-                lengthBuf.clear();
-                lengthBuf.putInt(data.length);
-                lengthBuf.flip();
-                channel.write(lengthBuf);
-                
-                // Write data
-                dataBuf.clear();
-                channel.write(dataBuf);
-                
-                // EXPENSIVE: fsync after EVERY write
-                channel.force(false);
+                // WALEntry constructor: (Long entryIndex, byte[] data, EntryType entryType, long generation)
+                WALEntry entry = new WALEntry((long) i, data, EntryType.DATA, 0L);
+                wal.writeEntry(entry);
                 
                 if ((i + 1) % 100 == 0) {
                     System.out.println("  Wrote " + (i + 1) + " entries, " + (i + 1) + " fsyncs");
                 }
             }
         } finally {
-            channel.close();
-            raf.close();
+            wal.close();
         }
         
         long elapsed = System.currentTimeMillis() - startTime;
         
         System.out.println("Completed in " + elapsed + "ms");
-        System.out.println("Throughput: " + (numEntries * 1000 / elapsed) + " writes/sec");
-        System.out.println("Average latency: " + String.format("%.2fms per write", (double) elapsed / numEntries));
-        System.out.println("fsyncs: " + numEntries + " (one per write)");
-        System.out.println("File size: " + (walFile.length() / 1024) + " KB");
+        
+        if (elapsed > 0) {
+            log("Throughput: " + (numEntries * 1000 / elapsed) + " writes/sec", "Average latency: " + String.format("%.2fms per write", (double) elapsed / numEntries));
+        }
+        
+        System.out.println("fsyncs: ~" + numEntries + " (fsync after each write)");
+        
+        // Calculate file size
+        long fileSize = calculateDirSize(walDir);
+        System.out.println("File size: " + (fileSize / 1024) + " KB");
         
         return elapsed;
     }
@@ -154,50 +173,51 @@ public class WALPerformanceComparisonTest {
         OptimizedWriteAheadLog.Stats stats = wal.getStats();
         
         System.out.println("Completed in " + elapsed + "ms");
-        System.out.println("Throughput: " + (numEntries * 1000 / elapsed) + " writes/sec");
-        System.out.println("Average latency: " + String.format("%.2fms per write", (double) elapsed / numEntries));
-        System.out.println("fsyncs: " + stats.totalFsyncs + " (group commit efficiency: " + 
-                         String.format("%.1fx", (double) stats.fsyncReduction) + ")");
-        System.out.println("File size: " + (stats.fileSize / 1024) + " KB " +
-                         "(pre-allocated: " + (stats.fileSize / 1024 / 1024) + " MB)");
         
+        if (elapsed > 0) {
+            log("Throughput: " + (numEntries * 1000 / elapsed) + " writes/sec", "Average latency: " + String.format("%.2fms per write", (double) elapsed / numEntries));
+        }
+
+        log("fsyncs: " + stats.totalFsyncs + " (group commit efficiency: " +
+                String.format("%.1fx", (double) stats.fsyncReduction) + ")", "File size: " + (stats.fileSize / 1024) + " KB " +
+                "(pre-allocated: " + (stats.fileSize / 1024 / 1024) + " MB)");
+
         return elapsed;
     }
     
     @Test
     public void showDetailedOptimizations() {
-        System.out.println("\n" + "=".repeat(70));
-        System.out.println("DETAILED OPTIMIZATION BREAKDOWN");
-        System.out.println("=".repeat(70));
-        
-        System.out.println("\n1. BUFFERED WRITES");
-        System.out.println("   Problem: Each write() is a system call (user→kernel transition)");
-        System.out.println("   Solution: Buffer writes in memory, flush when buffer full");
-        System.out.println("   Impact: 100-1000× reduction in system calls");
-        
-        System.out.println("\n2. GROUP COMMIT");
-        System.out.println("   Problem: fsync() is expensive (~1-10ms per call)");
-        System.out.println("   Solution: Batch N writes, do one fsync for all");
-        System.out.println("   Impact: N× reduction in fsync calls");
-        System.out.println("   Example: 1000 writes → 10 fsyncs = 100× improvement");
-        
-        System.out.println("\n3. PRE-ALLOCATION");
-        System.out.println("   Problem: File growth causes filesystem metadata updates");
-        System.out.println("   Solution: Pre-allocate large chunks (16MB)");
-        System.out.println("   Impact: Prevents fragmentation, predictable performance");
-        
-        System.out.println("\n" + "=".repeat(70));
-        System.out.println("WHY THESE OPTIMIZATIONS MATTER");
-        System.out.println("=".repeat(70));
-        System.out.println("\nFrom Section 1 (Little's Law), we measured:");
-        System.out.println("  - Disk service time: ~0.1ms per I/O");
-        System.out.println("  - fsync latency: ~1-10ms");
-        System.out.println("\nNaive approach:");
-        System.out.println("  - 1000 writes × 10ms fsync = 10,000ms (10 seconds!)");
-        System.out.println("\nOptimized approach:");
-        System.out.println("  - 1000 writes batched → 10 fsyncs × 10ms = 100ms");
-        System.out.println("  - 100× faster!");
-        System.out.println("\n" + "=".repeat(70));
+        log("\n" + "=".repeat(70), "DETAILED OPTIMIZATION BREAKDOWN");
+        log("=".repeat(70), "\n1. BUFFERED WRITES");
+        log("   Problem: Each write() is a system call (user→kernel transition)", "   Solution: Buffer writes in memory, flush when buffer full");
+        log("   Impact: 100-1000× reduction in system calls", "\n2. GROUP COMMIT");
+        log("   Problem: fsync() is expensive (~1-10ms per call)", "   Solution: Batch N writes, do one fsync for all");
+        log("   Impact: N× reduction in fsync calls", "   Example: 1000 writes → 10 fsyncs = 100× improvement");
+
+        log("\n3. PRE-ALLOCATION", "   Problem: File growth causes filesystem metadata updates");
+        log("   Solution: Pre-allocate large chunks (16MB)", "   Impact: Prevents fragmentation, predictable performance");
+
+        log("\n" + "=".repeat(70), "WHY THESE OPTIMIZATIONS MATTER");
+        log("=".repeat(70), "\nFrom Section 1 (Little's Law), we measured:");
+        log("  - Disk service time: ~0.1ms per I/O", "  - fsync latency: ~1-10ms");
+        log("\nBasic approach:", "  - 1000 writes × 10ms fsync = 10,000ms (10 seconds!)");
+        log("\nOptimized approach:", "  - 1000 writes batched → 10 fsyncs × 10ms = 100ms");
+        log("  - 100× faster!", "\n" + "=".repeat(70));
+    }
+    
+    private long calculateDirSize(File dir) {
+        long size = 0;
+        File[] files = dir.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                if (file.isFile()) {
+                    size += file.length();
+                } else if (file.isDirectory()) {
+                    size += calculateDirSize(file);
+                }
+            }
+        }
+        return size;
     }
     
     private void deleteDirectory(File dir) {
