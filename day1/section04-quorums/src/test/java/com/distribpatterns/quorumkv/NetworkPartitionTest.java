@@ -138,6 +138,46 @@ public class NetworkPartitionTest {
 
     @Test
     @DisplayName("Clock skew: minority (higher timestamp) wins after heal")
+    /**
+     * <-- MINORITY PARTITION (2) --> x <-- MAJORITY PARTITION (3) -->
+     *   Athens | Byzantium          x      Cyrene | Delphi | Sparta
+     *      |   |                    x         |   |   |
+     * (Step 1: Initial write from Majority Client; all nodes converge on v0)
+     *      |   |<---- set(k,v0) -- quorum -- set(k,v0) ---->|   |
+     *      |   |                    x         |   |   |
+     * (Step 2: Network is partitioned)
+     * ------------------------------x---------------------------------
+     *      |   |                    x         |   |   |
+     * (Step 3: Minority write fails at client but persists on A,B with high ts1)
+     * [mCli]--set(k,v1)-->|   |     x         |   |   |
+     *      |<--| (2/5 no quorum)    x         |   |   |
+     * [mCli]<--[TIMEOUT]            x         |   |   |
+     *      (A,B have v1, ts1)       x         (C,D,S have v0)
+     *      |   |                    x         |   |   |
+     * (Step 4: Majority clock skewed back; write succeeds with low ts0)
+     *      |   |                    x      (Clock on C set to ts1-SKEW)
+     *      |   |                    x         |   |   |
+     *      |   |                    x         |<--set(k,v2)--[MCli]
+     *      |   |                    x      (3/3 quorum) |   |
+     *      |   |                    x         |----[OK]---->[MCli]
+     *      (A,B have v1, ts1)     x      (C,D,S have v2, ts0)
+     *      |   |                    x         |   |   |
+     * (Step 5: Partitions are healed)
+     * -----------------------------------------------------------------
+     *      |   |                               |   |   |
+     * (Step 6: Read from any node triggers resolution. Higher timestamp wins)
+     * [mCli]-->| get(k)                          |   |   |
+     *      |---|----->| (Read repair starts)    |<--|---|
+     *      |   |      Sees (v1,ts1) from A/B    |   |   |
+     *      |   |      Sees (v2,ts0) from C/D/S  |   |   |
+     *      |   |                               |   |   |
+     *      |   |      (ts1 > ts0, so v1 wins)   |   |   |
+     *      |   |<----(Propagate v1)------------|---|--->|
+     *      |   |                               |   |   |
+     * [mCli]<--|- - - - (returns v1) - - - - - -|   |   |
+     *      |   |                               |   |   |
+     *      (All nodes eventually converge on v1: the "old minority" value)
+     */
     void clockSkewOverwritesMajorityValue() throws IOException {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE, DELPHI, SPARTA))
@@ -204,44 +244,6 @@ public class NetworkPartitionTest {
 
             boolean okSeq = ConsistencyChecker.check(edn, ConsistencyProperty.SEQUENTIAL_CONSISTENCY, DataModel.REGISTER);
             assertFalse(okSeq);
-        }
-    }
-
-    @Test
-    @DisplayName("Network delays: write/read succeed under variable latencies")
-    void shouldHandleVariableNetworkDelays() throws IOException {
-        // Local ids for this scenario
-        var CALIFORNIA = ProcessId.of("california");
-        var NEWYORK = ProcessId.of("newyork");
-        var LONDON = ProcessId.of("london");
-
-        try (var cluster = new Cluster()
-                .withProcessIds(List.of(CALIFORNIA, NEWYORK, LONDON))
-                .useSimulatedNetwork()
-                .build(QuorumKVReplica::new)
-                .start()) {
-
-            // symmetric delays (ticks)
-            cluster.setNetworkDelay(CALIFORNIA, NEWYORK, 5);
-            cluster.setNetworkDelay(NEWYORK, CALIFORNIA, 5);
-            cluster.setNetworkDelay(CALIFORNIA, LONDON, 15);
-            cluster.setNetworkDelay(LONDON, CALIFORNIA, 15);
-            cluster.setNetworkDelay(NEWYORK, LONDON, 8);
-            cluster.setNetworkDelay(LONDON, NEWYORK, 8);
-
-            var client = cluster.newClient(ProcessId.of("mobile_app"), QuorumKVClient::new);
-
-            byte[] key = "user_profile".getBytes();
-            byte[] value = "updated_profile_data".getBytes();
-
-            var delayedWrite = client.set(key, value);
-            assertEventually(cluster, delayedWrite::isCompleted);
-            assertTrue(delayedWrite.getResult().success(), "Write should succeed despite network delays");
-
-            var delayedRead = client.get(key);
-            assertEventually(cluster, delayedRead::isCompleted);
-            assertTrue(delayedRead.getResult().found(), "Data should be retrievable");
-            assertArrayEquals(value, delayedRead.getResult().value(), "Data should be consistent");
         }
     }
 

@@ -42,7 +42,28 @@ public final class DDIA_Linearizability_And_Quorum_ScenarioTest
     }
 
     @Test
-    @DisplayName("DDIA §10.6 via per-link delay: Alice sees new, later Bob sees old (LIN ❌, SC ✅)")
+    @DisplayName("DDIA diagram §10.6'Linearizability and quorums'-via per-link delay: Alice sees new, later Bob sees old (LIN ❌, SC ✅)")
+/**
+ * Writer   Replica 1   Replica 2   Replica 3    Alice      Bob
+ *   |          |           |           |          |         |
+ *   |---set x=1----------------------->|          |         |
+ *   |<----------ok---------------------|          |         |
+ *   |          |            |          |
+ *   |          |           |           |          |         |
+ *   |          |           |           |
+ *   |          |           |           |<--get x--|         |
+ *   |          |           |           |----1---->|         |
+ *   |          |           |<--get x--------------|         |
+ *   |          |           |----0---------------->|         |
+ *   |          |<--get x------------------------------------|
+ *   |          |----0-------------------------------------->|
+ *   |          |           |<--get x------------------------|
+ *   |          |           |----0-------------------------->|
+ *   |-set x=1->|           |          |          |          |
+ *   |---set x=1-----------> |
+ *   |<----------ok----------|         |          |          |
+ *   |<----------------ok----|         |          |          |
+ */
     void ddia106_link_delay_race()  {
         //Updates the order status..
         var orderStatusUpdater = clientConnectedTo(WRITER, ATHENS);
@@ -51,7 +72,7 @@ public final class DDIA_Linearizability_And_Quorum_ScenarioTest
         var bob = clientConnectedTo(BOB, BYZANTIUM); // Bob reads via BYZANTIUM
 
         // Realistic key/values
-        byte[] key = "order:1001".getBytes(StandardCharsets.UTF_8);
+        byte[] key = "key".getBytes(StandardCharsets.UTF_8);
         byte[] vOld = "x=0".getBytes(StandardCharsets.UTF_8);
         byte[] vNew = "x=1".getBytes(StandardCharsets.UTF_8);
 
