@@ -79,11 +79,14 @@ public class QuorumBasicScenariosTest {
             byte[] key = "title".getBytes();
             byte[] value = "Microservices".getBytes();
 
+            cluster.partitionNodes(NodeGroup.of(ATHENS,BYZANTIUM), NodeGroup.of(CYRENE));
             // Write value
             var writeResult = client.set(key, value);
             assertEventually(cluster, writeResult::isCompleted);
             assertTrue(writeResult.getResult().success());
 
+            cluster.healAllPartitions();
+            cluster.partitionNodes(NodeGroup.of(ATHENS,CYRENE), NodeGroup.of(BYZANTIUM));
             // Read value - should query majority and return latest
             var readResult = client.get(key);
             assertEventually(cluster, readResult::isCompleted);

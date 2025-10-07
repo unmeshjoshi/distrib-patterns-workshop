@@ -85,6 +85,7 @@ public class QuorumKVReplica extends Replica {
         return responses.values()
                 .stream()
                 .map(InternalGetResponse::value)
+                .filter(value -> value.value() != null)
                 .max(Comparator.comparingLong(VersionedValue::timestamp)).get();
     }
 
@@ -92,7 +93,7 @@ public class QuorumKVReplica extends Replica {
         var allNodes = getAllNodes();
         return new AsyncQuorumCallback<>(
                 allNodes.size(),
-                response -> response != null && response.value() != null
+                response -> response != null   //null values is valid response. TODO:refactor.
         );
     }
 
@@ -106,11 +107,6 @@ public class QuorumKVReplica extends Replica {
         var latestValue = getLatestValueFromResponses(responses);
 
         logSuccessfulGetResponse(req, correlationId, latestValue);
-
-        // Perform read repair if enabled
-        if (enableReadRepair && latestValue != null) {
-
-        }
 
         // For async read repair or no repair needed, send response immediately
         sendGetResponseToClient(req, correlationId, clientAddr, latestValue);
