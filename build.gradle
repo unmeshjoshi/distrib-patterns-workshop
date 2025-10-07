@@ -1,0 +1,49 @@
+// Root build file for distributed patterns workshop
+// This configuration applies to all day sections and their subprojects
+
+// Configure all subprojects (including nested ones)
+subprojects {
+    apply plugin: 'java'
+    
+    repositories {
+        mavenCentral()
+    }
+    
+    // Common dependencies for all subprojects
+    dependencies {
+        // Tickloom library (includes Jackson core and databind)
+        implementation 'io.github.unmeshjoshi:tickloom:0.1.0-alpha.8'
+        
+        // Additional Jackson modules needed by the project
+        implementation group: 'com.fasterxml.jackson.datatype', name: 'jackson-datatype-jdk8', version: '2.13.4'
+        implementation group: 'com.fasterxml.jackson.module', name: 'jackson-module-parameter-names', version: '2.13.4'
+        
+        // Logging
+        implementation group: 'org.apache.logging.log4j', name: 'log4j-api', version: '2.8.2'
+        implementation group: 'org.apache.logging.log4j', name: 'log4j-core', version: '2.8.2'
+        
+        // Testing
+        testImplementation 'junit:junit:4.13.2'
+    }
+    
+    // Common Java compiler configuration
+    compileJava {
+        // For Jackson (in tickloom) to use property based constructor
+        options.compilerArgs << '-parameters'
+    }
+    
+    // Common test configuration
+    test {
+        testLogging {
+            events "passed", "skipped", "failed"
+            exceptionFormat "full"
+        }
+    }
+    
+    // Java version
+    java {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
+}
+

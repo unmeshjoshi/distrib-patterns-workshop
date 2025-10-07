@@ -1,7 +1,5 @@
 package replicate.wal;
 
-import com.google.common.base.Objects;
-
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -77,7 +75,7 @@ public class SetValueCommand extends Command {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         SetValueCommand that = (SetValueCommand) o;
-        return Objects.equal(key, that.key) && Objects.equal(value, that.value) && Objects.equal(attachLease, that.attachLease);
+        return java.util.Objects.equals(key, that.key) && java.util.Objects.equals(value, that.value) && java.util.Objects.equals(attachLease, that.attachLease);
     }
 
     public boolean isEmpty() {
@@ -86,6 +84,6 @@ public class SetValueCommand extends Command {
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(key, value, attachLease);
+        return java.util.Objects.hash(key, value, attachLease);
     }
 }

@@ -1,7 +1,5 @@
 package replicate.wal;
 
-import com.google.common.base.Objects;
-
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -62,12 +60,12 @@ public class TxnSetValueCommand extends Command {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         TxnSetValueCommand that = (TxnSetValueCommand) o;
-        return Objects.equal(key, that.key) && Objects.equal(value, that.value) && Objects.equal(txnId, that.txnId);
+        return java.util.Objects.equals(key, that.key) && java.util.Objects.equals(value, that.value) && java.util.Objects.equals(txnId, that.txnId);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(key, value, txnId);
+        return java.util.Objects.hash(key, value, txnId);
     }
 
     @Override
