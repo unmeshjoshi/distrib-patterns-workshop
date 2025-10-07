@@ -1,13 +1,13 @@
-package replicate.quorumkv;
+package com.distribpatterns.quorumkv;
 
 import java.util.Arrays;
 import java.util.Objects;
 
 /**
- * Response to a client SET request.
+ * Internal response sent between replicas for SET requests.
  */
-public record SetResponse(byte[] key, boolean success) {
-    public SetResponse {
+public record InternalSetResponse(byte[] key, boolean success) {
+    public InternalSetResponse {
         Objects.requireNonNull(key, "Key cannot be null");
     }
 
@@ -15,8 +15,9 @@ public record SetResponse(byte[] key, boolean success) {
     public boolean equals(Object obj) {
         if (this == obj) return true;
         if (obj == null || getClass() != obj.getClass()) return false;
-        SetResponse that = (SetResponse) obj;
-        return success == that.success && Arrays.equals(key, that.key);
+        InternalSetResponse that = (InternalSetResponse) obj;
+        return success == that.success &&
+               Arrays.equals(key, that.key);
     }
 
     @Override
@@ -26,7 +27,8 @@ public record SetResponse(byte[] key, boolean success) {
 
     @Override
     public String toString() {
-        return "SetResponse{keyLength=" + key.length + ", success=" + success + "}";
+        return "InternalSetResponse{keyLength=" + key.length + ", success=" + success + 
+               "'}";
     }
 }
 

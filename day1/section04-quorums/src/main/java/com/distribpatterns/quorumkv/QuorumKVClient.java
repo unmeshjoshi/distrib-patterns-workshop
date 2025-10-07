@@ -1,4 +1,4 @@
-package replicate.quorumkv;
+package com.distribpatterns.quorumkv;
 
 import com.tickloom.ProcessId;
 import com.tickloom.algorithms.replication.ClusterClient;

@@ -1,4 +1,4 @@
-package replicate.quorumkv;
+package com.distribpatterns.quorumkv;
 
 import java.util.Arrays;
 import java.util.Objects;

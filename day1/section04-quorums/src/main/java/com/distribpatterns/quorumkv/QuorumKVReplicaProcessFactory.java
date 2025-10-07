@@ -1,4 +1,4 @@
-package replicate.quorumkv;
+package com.distribpatterns.quorumkv;
 
 import com.tickloom.Process;
 import com.tickloom.ProcessFactory;
