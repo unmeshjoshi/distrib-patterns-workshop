@@ -1,4 +1,4 @@
-package replicate.common;
+package com.distribpatterns.common;
 
 import java.io.File;
 import java.io.IOException;

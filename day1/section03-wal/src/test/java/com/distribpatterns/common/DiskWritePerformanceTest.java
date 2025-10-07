@@ -1,4 +1,4 @@
-package replicate.common;
+package com.distribpatterns.common;
 
 import java.io.*;
 import java.time.Duration;

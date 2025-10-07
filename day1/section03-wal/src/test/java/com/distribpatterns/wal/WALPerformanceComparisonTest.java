@@ -1,10 +1,10 @@
-package replicate.wal;
+package com.distribpatterns.wal;
 
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
-import replicate.common.Config;
-import replicate.common.TestUtils;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import com.distribpatterns.common.Config;
+import com.distribpatterns.common.TestUtils;
 
 import java.io.File;
 import java.io.IOException;
@@ -24,12 +24,12 @@ public class WALPerformanceComparisonTest {
     
     private File walDir;
     
-    @Before
+    @BeforeEach
     public void setUp() {
         walDir = TestUtils.tempDir("wal-perf-test");
     }
     
-    @After
+    @AfterEach
     public void tearDown() {
         // Cleanup
         if (walDir != null && walDir.exists()) {
@@ -157,7 +157,7 @@ public class WALPerformanceComparisonTest {
         System.out.println("Throughput: " + (numEntries * 1000 / elapsed) + " writes/sec");
         System.out.println("Average latency: " + String.format("%.2fms per write", (double) elapsed / numEntries));
         System.out.println("fsyncs: " + stats.totalFsyncs + " (group commit efficiency: " + 
-                         String.format("%.1fx", stats.fsyncReduction) + ")");
+                         String.format("%.1fx", (double) stats.fsyncReduction) + ")");
         System.out.println("File size: " + (stats.fileSize / 1024) + " KB " +
                          "(pre-allocated: " + (stats.fileSize / 1024 / 1024) + " MB)");
         
@@ -214,4 +214,3 @@ public class WALPerformanceComparisonTest {
         dir.delete();
     }
 }
-

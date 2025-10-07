@@ -1,4 +1,4 @@
-package replicate.common;
+package com.distribpatterns.common;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 

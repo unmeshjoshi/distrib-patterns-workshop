@@ -1,4 +1,4 @@
-package replicate.wal;
+package com.distribpatterns.wal;
 
 import java.io.*;
 

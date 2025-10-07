@@ -1,6 +1,6 @@
-package replicate.wal;
+package com.distribpatterns.wal;
 
-import replicate.common.JsonSerDes;
+import com.distribpatterns.common.JsonSerDes;
 
 import java.util.HashMap;
 

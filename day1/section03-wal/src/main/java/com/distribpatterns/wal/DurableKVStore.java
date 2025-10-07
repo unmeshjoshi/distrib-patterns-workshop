@@ -1,6 +1,6 @@
-package replicate.wal;
+package com.distribpatterns.wal;
 
-import replicate.common.Config;
+import com.distribpatterns.common.Config;
 
 import java.io.ByteArrayInputStream;
 import java.util.Collection;

@@ -1,4 +1,4 @@
-package replicate.common;
+package com.distribpatterns.common;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
