@@ -19,7 +19,7 @@ import static com.tickloom.testkit.ClusterAssertions.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Demonstrates how to use Jepsen-style history tracking to verify consistency properties.
+ * Demonstrates how to use Jepsen history tracking to verify consistency properties.
  * 
  * This test shows:
  * 1. How to track operations using History<String>

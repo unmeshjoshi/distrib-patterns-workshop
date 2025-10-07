@@ -9,32 +9,8 @@ The `ReadRepairConsistencyTest` demonstrates how to:
 2. Export history to EDN (Extensible Data Notation) format
 3. Check linearizability and sequential consistency using Jepsen's Knossos checker
 
-## Test Suite Overview
 
-The quorum implementation has **22 tests total** across multiple test files:
-
-### 1. QuorumBasicScenariosTest (9 tests)
-- Scenario 1: Quorum Write - Alice sets title='Microservices'
-- Scenario 2: Quorum Read - Alice reads from all replicas
-- Scenario 7: Consistency (sequential reads & concurrent writes)
-- Scenario 8: Incomplete Writes - Network failure prevents propagation
-- Scenario 9 & 10: Inconsistent Reads
-- Additional: Write failures, multiple clients
-
-### 2. NetworkPartitionTest (5 tests)
-- Split-brain prevention
-- Clock skew scenarios
-- Network delays
-- Local stale reads with linearizability checking
-
-### 3. ReadRepairScenariosTest (7 tests)
-- Sync read repair
-- Async read repair
-- Selecting latest value (variants 1 & 2)
-- Multiple keys repair
-- No repair needed test
-
-### 4. ReadRepairConsistencyTest (1 test - THIS DOCUMENT)
+###  ReadRepairConsistencyTest (1 test - THIS DOCUMENT)
 **This file demonstrates history tracking and consistency checking:**
 - `testSyncReadRepairConsistency()` - Shows complete pattern for using History API and ConsistencyChecker
 
