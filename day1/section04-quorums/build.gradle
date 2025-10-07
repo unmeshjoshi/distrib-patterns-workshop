@@ -1,0 +1,8 @@
+// Quorum-based Key-Value store implementation
+// Common dependencies and configuration are inherited from parent build.gradle
+
+dependencies {
+    // Tickloom testkit is already available from parent build.gradle
+    // Add any section-specific dependencies here if needed
+}
+

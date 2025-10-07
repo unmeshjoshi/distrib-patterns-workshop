@@ -1,3 +1,0 @@
-replicas: 5
-read_quorum: 3
-write_quorum: 3

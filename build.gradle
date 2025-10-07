@@ -7,13 +7,17 @@ subprojects {
     
     repositories {
         mavenCentral()
+        maven {
+            url = uri("https://clojars.org/repo")
+        }
     }
     
     // Common dependencies for all subprojects
     dependencies {
         // Tickloom library (includes Jackson core and databind)
-        implementation 'io.github.unmeshjoshi:tickloom:0.1.0-alpha.8'
-        
+        implementation 'io.github.unmeshjoshi:tickloom:0.1.0-alpha.11'
+        testImplementation 'io.github.unmeshjoshi:tickloom-testkit:0.1.0-alpha.11'
+
         // Additional Jackson modules needed by the project
         implementation group: 'com.fasterxml.jackson.datatype', name: 'jackson-datatype-jdk8', version: '2.13.4'
         implementation group: 'com.fasterxml.jackson.module', name: 'jackson-module-parameter-names', version: '2.13.4'
@@ -24,6 +28,13 @@ subprojects {
         
         // Testing
         testImplementation 'junit:junit:4.13.2'
+        testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.0'
+        testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.10.0'
+    }
+    
+    // Use JUnit Platform for testing
+    test {
+        useJUnitPlatform()
     }
     
     // Common Java compiler configuration
@@ -42,8 +53,8 @@ subprojects {
     
     // Java version
     java {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 }
 

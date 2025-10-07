@@ -23,3 +23,6 @@ Thumbs.db
 # Test outputs
 *.jar
 !gradle/wrapper/gradle-wrapper.jar
+
+# Jepsen stores generated with jepsen tests.
+store
