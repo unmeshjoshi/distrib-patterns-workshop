@@ -10,4 +10,5 @@ include 'day2:section02-generation-voting'
 include 'day2:section03-paxos'
 include 'day2:section04-paxoslog'
 include 'day2:section05-multipaxos'
+include 'day2:section06-multipaxos-heartbeats'
 
