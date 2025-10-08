@@ -1,0 +1,7 @@
+// Minimal build file - inherits all dependencies from root project
+plugins {
+    id 'java'
+}
+
+description = 'Single Value Paxos Implementation'
+
