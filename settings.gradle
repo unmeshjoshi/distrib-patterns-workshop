@@ -4,7 +4,6 @@ rootProject.name = 'distrib-patterns-workshop'
 include 'day1:section03-wal'
 include 'day1:section04-quorums'
 
-// Future day2 sections can be added here:
-// include 'day2:section01-...'
-// include 'day2:section02-...'
+// Include day2 sections
+include 'day2:section01-naive-replication'
 

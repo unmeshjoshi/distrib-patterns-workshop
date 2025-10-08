@@ -1,0 +1,5 @@
+// Day 2 Section 01: Single Server & Naive Replication
+// Demonstrates basic replication patterns and their failure modes
+
+// All dependencies (tickloom, JUnit 5, etc.) are inherited from root build.gradle
+// No additional dependencies needed for this section
