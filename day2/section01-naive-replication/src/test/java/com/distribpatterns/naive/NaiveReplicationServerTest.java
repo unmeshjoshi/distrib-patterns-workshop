@@ -15,7 +15,7 @@ import static com.tickloom.testkit.ClusterAssertions.assertEventually;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
-class NaiveReplicationServerTest {
+public class NaiveReplicationServerTest {
     // Replica nodes (matching scenario descriptions)
     private static final ProcessId ATHENS = ProcessId.of("athens");
     private static final ProcessId BYZANTIUM = ProcessId.of("byzantium");
@@ -92,7 +92,7 @@ class NaiveReplicationServerTest {
     }
 
     //TODO. Move following methods to Cluster class.
-    private  static <T extends Process>  T getServerInstance(Cluster cluster, ProcessId processId) {
+    public static <T extends Process>  T getServerInstance(Cluster cluster, ProcessId processId) {
         return (T) cluster.getProcess(processId);
     }
 
