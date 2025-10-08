@@ -3,12 +3,16 @@ package com.distribpatterns.twophase;
 import com.tickloom.messaging.MessageType;
 
 /**
- * Message types for Two-Phase Commit protocol
+ * Message types for Two-Phase and Three-Phase Commit protocols
  */
 public class TwoPhaseMessageTypes {
     // Client-facing operations
     public static final MessageType CLIENT_EXECUTE_REQUEST = new MessageType("CLIENT_EXECUTE_REQUEST");
     public static final MessageType CLIENT_EXECUTE_RESPONSE = new MessageType("CLIENT_EXECUTE_RESPONSE");
+    
+    // Phase 0: Query/CanCommit (Three-Phase only)
+    public static final MessageType QUERY_REQUEST = new MessageType("QUERY_REQUEST");
+    public static final MessageType QUERY_RESPONSE = new MessageType("QUERY_RESPONSE");
     
     // Phase 1: Prepare/Accept
     public static final MessageType ACCEPT_REQUEST = new MessageType("ACCEPT_REQUEST");
