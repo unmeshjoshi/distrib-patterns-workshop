@@ -237,7 +237,7 @@ public class MultiPaxosWithHeartbeatsServer extends Replica {
         }
         
         send(createMessage(message.source(), message.correlationId(),
-            new ProposeResponse(accepted), MultiPaxosMessageTypes.PROPOSE_RESPONSE));
+            new ProposeResponse(logIndex, accepted), MultiPaxosMessageTypes.PROPOSE_RESPONSE));
     }
     
     private void handleProposeResponse(Message message) {

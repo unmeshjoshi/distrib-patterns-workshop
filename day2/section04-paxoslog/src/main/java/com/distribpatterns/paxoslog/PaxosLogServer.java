@@ -275,11 +275,11 @@ public class PaxosLogServer extends Replica {
             
             System.out.println(id + ": ACCEPTED proposal for index " + logIndex);
             send(createMessage(message.source(), message.correlationId(), 
-                new ProposeResponse(true), PaxosLogMessageTypes.PROPOSE_RESPONSE));
+                new ProposeResponse(logIndex, true), PaxosLogMessageTypes.PROPOSE_RESPONSE));
         } else {
             System.out.println(id + ": REJECTED proposal for index " + logIndex);
             send(createMessage(message.source(), message.correlationId(), 
-                new ProposeResponse(false), PaxosLogMessageTypes.PROPOSE_RESPONSE));
+                new ProposeResponse(logIndex, false), PaxosLogMessageTypes.PROPOSE_RESPONSE));
         }
     }
     
