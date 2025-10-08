@@ -8,4 +8,5 @@ include 'day1:section04-quorums'
 include 'day2:section01-naive-replication'
 include 'day2:section02-generation-voting'
 include 'day2:section03-paxos'
+include 'day2:section04-paxoslog'
 

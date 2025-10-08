@@ -164,7 +164,7 @@ public class PaxosTest {
             
             // WHEN: Client sets a key-value pair
             ListenableFuture<ExecuteResponse> future = client.execute(ATHENS, 
-                new SetValueOperation("author", "Martin Fowler"));
+                new SetValueOperation("author", "Martin"));
             
             // Wait for operation to complete
             assertEventually(cluster, () -> future.isCompleted() && !future.isFailed());
@@ -172,16 +172,16 @@ public class PaxosTest {
             // THEN: Operation succeeds
             var response = future.getResult();
             assertTrue(response.success(), "Operation should succeed");
-            assertEquals("Martin Fowler", response.result(), "Result should match the set value");
+            assertEquals("Martin", response.result(), "Result should match the set value");
             
             // AND: All nodes should have the value
             PaxosServer athens = getServer(cluster, ATHENS);
             PaxosServer byzantium = getServer(cluster, BYZANTIUM);
             PaxosServer cyrene = getServer(cluster, CYRENE);
             
-            assertEquals("Martin Fowler", athens.getValue("author"));
-            assertEquals("Martin Fowler", byzantium.getValue("author"));
-            assertEquals("Martin Fowler", cyrene.getValue("author"));
+            assertEquals("Martin", athens.getValue("author"));
+            assertEquals("Martin", byzantium.getValue("author"));
+            assertEquals("Martin", cyrene.getValue("author"));
             
             System.out.println("\n=== Test passed: Set value operation ===\n");
         }
