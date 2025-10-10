@@ -29,12 +29,9 @@ public class PaxosLogTest {
     @DisplayName("Basic Command Execution: Single SetValue command")
     void testBasicSetValue() throws IOException {
         System.out.println("\n=== TEST: Basic SetValue ===\n");
-        
-        try (var cluster = new Cluster()
-                .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
-                .useSimulatedNetwork()
-                .build(PaxosLogServer::new)
-                .start()) {
+
+        //Not doing createSimulated just to the same code if we switch to real networking with Java NIO.
+        try (var cluster = Cluster.create(List.of(ATHENS, BYZANTIUM, CYRENE), PaxosLogServer::new)) {
             
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, PaxosLogClient::new);
             
