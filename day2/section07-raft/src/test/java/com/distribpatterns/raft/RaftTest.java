@@ -45,9 +45,8 @@ public class RaftTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build((id, allNodes, messageBus, messageCodec, storage, clock, requestTimeoutTicks) ->
-                    new RaftServer(id, allNodes, messageBus, messageCodec, storage, clock, 
-                                  requestTimeoutTicks, ELECTION_TIMEOUT_TICKS))
+                .build((allNodes, storage, processParams) ->
+                    new RaftServer(allNodes, storage, processParams, ELECTION_TIMEOUT_TICKS))
                 .start()) {
             
             // Wait for election
@@ -87,9 +86,8 @@ public class RaftTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build((id, allNodes, messageBus, messageCodec, storage, clock, requestTimeoutTicks) ->
-                    new RaftServer(id, allNodes, messageBus, messageCodec, storage, clock, 
-                                  requestTimeoutTicks, ELECTION_TIMEOUT_TICKS))
+                .build((allNodes, storage, processParams) ->
+                    new RaftServer(allNodes, storage, processParams, ELECTION_TIMEOUT_TICKS))
                 .start()) {
             
             RaftServer athens = getServer(cluster, ATHENS);

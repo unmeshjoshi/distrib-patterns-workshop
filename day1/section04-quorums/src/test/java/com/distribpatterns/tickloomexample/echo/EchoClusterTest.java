@@ -15,11 +15,7 @@ public class EchoClusterTest {
 
     @BeforeEach
     void setup() throws Exception {
-        cluster = new Cluster()
-                .withNumProcesses(1)
-                .useSimulatedNetwork()
-                .build(EchoServer::new)
-                .start();
+        cluster = Cluster.createSimulated(3, EchoServer::new);
     }
 
     @AfterEach
@@ -31,8 +27,7 @@ public class EchoClusterTest {
     void echo_roundtrip() throws Exception {
         ProcessId serverId = ProcessId.of("process-1");
 
-        EchoClient client = cluster.newClient(ProcessId.of("client-1"), (clientId, endpoints, bus, codec, clock, timeoutTicks) ->
-                new EchoClient(clientId, java.util.List.of(serverId), bus, codec, clock, timeoutTicks));
+        EchoClient client = cluster.newClient(ProcessId.of("client-1"), EchoClient::new);
 
         var future = client.echo(serverId, "hello");
         assertEventually(cluster, () -> future.isCompleted());

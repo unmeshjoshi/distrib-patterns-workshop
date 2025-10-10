@@ -1,6 +1,7 @@
 package com.distribpatterns.paxos;
 
 import com.tickloom.ProcessId;
+import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
 import com.tickloom.messaging.*;
 import com.tickloom.network.MessageCodec;
@@ -37,9 +38,8 @@ public class PaxosServer extends Replica {
     // Retry mechanism
     private static final int MAX_RETRIES = 3;
     
-    public PaxosServer(ProcessId id, List<ProcessId> allNodes, MessageBus messageBus,
-                       MessageCodec messageCodec, Storage storage, Clock clock, int requestTimeoutTicks) {
-        super(id, allNodes, messageBus, messageCodec, storage, clock, requestTimeoutTicks);
+    public PaxosServer(List<ProcessId> allNodes, Storage storage, ProcessParams processParams) {
+        super(allNodes, storage, processParams);
     }
     
     @Override

@@ -1,6 +1,7 @@
 package com.distribpatterns.twophase;
 
 import com.tickloom.ProcessId;
+import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
 import com.tickloom.messaging.*;
 import com.tickloom.network.MessageCodec;
@@ -42,10 +43,8 @@ public class TwoPhaseServer extends Replica {
     // Participant state: prepared operations waiting for commit
     private final Map<String, Operation> preparedOperations = new HashMap<>();
     
-    public TwoPhaseServer(ProcessId id, List<ProcessId> peerIds, MessageBus messageBus,
-                         MessageCodec messageCodec, Storage storage, Clock clock,
-                         int requestTimeoutTicks) {
-        super(id, peerIds, messageBus, messageCodec, storage, clock, requestTimeoutTicks);
+    public TwoPhaseServer(List<ProcessId> peerIds,Storage storage, ProcessParams processParams) {
+        super(peerIds, storage, processParams);
     }
     
     @Override

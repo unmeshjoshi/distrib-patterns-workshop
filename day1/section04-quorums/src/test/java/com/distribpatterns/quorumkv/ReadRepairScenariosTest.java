@@ -31,14 +31,14 @@ public class ReadRepairScenariosTest {
     /**
      * Factory for creating replicas with read repair enabled (synchronous).
      */
-    private static final ProcessFactory SYNC_READ_REPAIR_FACTORY = (id, peerIds, messageBus, messageCodec, storage, clock, timeoutTicks) ->
-            new QuorumKVReplica(id, peerIds, messageBus, messageCodec, storage, clock, timeoutTicks, true, false);
+    private static final ProcessFactory SYNC_READ_REPAIR_FACTORY = (peerIds, storage, processParams) ->
+            new QuorumKVReplica(peerIds, storage, processParams, true, false);
 
     /**
      * Factory for creating replicas with read repair enabled (asynchronous).
      */
-    private static final ProcessFactory ASYNC_READ_REPAIR_FACTORY = (id, peerIds, messageBus, messageCodec, storage, clock, timeoutTicks) ->
-            new QuorumKVReplica(id, peerIds, messageBus, messageCodec, storage, clock, timeoutTicks, true, true);
+    private static final ProcessFactory ASYNC_READ_REPAIR_FACTORY = (peerIds, storage, processParams) ->
+            new QuorumKVReplica(peerIds, storage, processParams, true, true);
 
     @Test
     @DisplayName("Scenario 3: Read Repair - Coordinator detects stale nodes and synchronizes all replicas ✅")

@@ -24,8 +24,8 @@ public class SimpleReadRepairTest {
     private static final ProcessId CYRENE = ProcessId.of("node-c");
     private static final ProcessId ALICE = ProcessId.of("client-1");
 
-    private static final ProcessFactory SYNC_READ_REPAIR_FACTORY = (id, peerIds, messageBus, messageCodec, storage, clock, timeoutTicks) ->
-            new QuorumKVReplica(id, peerIds, messageBus, messageCodec, storage, clock, timeoutTicks, true, false);
+    private static final ProcessFactory SYNC_READ_REPAIR_FACTORY = (peerIds, storage, processParams) ->
+            new QuorumKVReplica(peerIds, storage, processParams, true, false);
 
     @Test
     @DisplayName("Simple Read Repair Test")

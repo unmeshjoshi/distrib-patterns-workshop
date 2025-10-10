@@ -2,6 +2,7 @@ package com.distribpatterns.tickloomexample.echo;
 
 import com.distribpatterns.tickloomexample.echo.EchoMessages.EchoResponse;
 import com.tickloom.ProcessId;
+import com.tickloom.ProcessParams;
 import com.tickloom.algorithms.replication.ClusterClient;
 import com.tickloom.future.ListenableFuture;
 import com.tickloom.messaging.MessageBus;
@@ -16,13 +17,9 @@ import static com.distribpatterns.tickloomexample.echo.EchoMessages.ECHO_RESPONS
 
 public class EchoClient extends ClusterClient {
 
-    public EchoClient(ProcessId clientId,
-                      List<ProcessId> replicaEndpoints,
-                      MessageBus messageBus,
-                      MessageCodec messageCodec,
-                      Clock clock,
-                      int timeoutTicks) {
-        super(clientId, replicaEndpoints, messageBus, messageCodec, clock, timeoutTicks);
+    public EchoClient(List<ProcessId> replicaEndpoints,
+                      ProcessParams processParams) {
+        super(replicaEndpoints, processParams);
     }
 
     public ListenableFuture<EchoResponse> echo(ProcessId server, String text) {

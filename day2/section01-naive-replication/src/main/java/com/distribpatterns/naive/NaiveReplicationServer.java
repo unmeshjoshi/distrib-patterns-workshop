@@ -1,6 +1,7 @@
 package com.distribpatterns.naive;
 
 import com.tickloom.ProcessId;
+import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
 import com.tickloom.messaging.*;
 import com.tickloom.network.MessageCodec;
@@ -24,8 +25,8 @@ public class NaiveReplicationServer extends Replica {
     
     private final Map<String, Integer> counters = new HashMap<>();
 
-    public NaiveReplicationServer(ProcessId id, List<ProcessId> peerIds, MessageBus messageBus, MessageCodec messageCodec, Storage storage, Clock clock, int requestTimeoutTicks) {
-        super(id, peerIds, messageBus, messageCodec, storage, clock, requestTimeoutTicks);
+    public NaiveReplicationServer(List<ProcessId> peerIds, Storage storage, ProcessParams processParams) {
+        super(peerIds, storage, processParams);
     }
     
     @Override

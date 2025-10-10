@@ -1,6 +1,7 @@
 package com.distribpatterns.raft;
 
 import com.tickloom.ProcessId;
+import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
 import com.tickloom.messaging.*;
 import com.tickloom.network.MessageCodec;
@@ -50,10 +51,8 @@ public class RaftServer extends Replica {
     // ========== LEADER TRACKING ==========
     private ProcessId currentLeader = null;
 
-    public RaftServer(ProcessId id, List<ProcessId> allNodes, MessageBus messageBus,
-                     MessageCodec messageCodec, Storage storage, Clock clock,
-                     int requestTimeoutTicks, int electionTimeoutTicks) {
-        super(id, allNodes, messageBus, messageCodec, storage, clock, requestTimeoutTicks);
+    public RaftServer(List<ProcessId> allNodes, Storage storage, ProcessParams processParams, int electionTimeoutTicks) {
+        super(allNodes, storage, processParams);
 
         // Initialize log with dummy entry at index 0
         log.add(new LogEntry(0, 0, new NoOpOperation()));

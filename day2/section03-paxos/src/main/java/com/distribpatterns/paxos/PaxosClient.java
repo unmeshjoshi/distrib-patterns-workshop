@@ -1,6 +1,7 @@
 package com.distribpatterns.paxos;
 
 import com.tickloom.ProcessId;
+import com.tickloom.ProcessParams;
 import com.tickloom.algorithms.replication.ClusterClient;
 import com.tickloom.future.ListenableFuture;
 import com.tickloom.messaging.*;
@@ -16,9 +17,8 @@ import java.util.Map;
  */
 public class PaxosClient extends ClusterClient {
     
-    public PaxosClient(ProcessId clientId, List<ProcessId> replicaEndpoints, MessageBus messageBus,
-                       MessageCodec messageCodec, Clock clock, int timeoutTicks) {
-        super(clientId, replicaEndpoints, messageBus, messageCodec, clock, timeoutTicks);
+    public PaxosClient(List<ProcessId> replicaEndpoints, ProcessParams processParams) {
+        super(replicaEndpoints, processParams);
     }
     
     /**

@@ -37,11 +37,7 @@ public class NetworkPartitionTest {
     @Test
     @DisplayName("Split-brain prevention: majority value persists after heal")
     void shouldPreventSplitBrainDuringNetworkPartition() throws IOException {
-        try (var cluster = new Cluster()
-                .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE, DELPHI, SPARTA))
-                .useSimulatedNetwork()
-                .build(QuorumKVReplica::new)
-                .start()) {
+        try (var cluster = Cluster.createSimulated(List.of(ATHENS, BYZANTIUM, CYRENE, DELPHI, SPARTA), QuorumKVReplica::new)) {
 
             // clients
             var minorityClient = cluster.newClientConnectedTo(MINORITY_CLIENT, ATHENS, QuorumKVClient::new);

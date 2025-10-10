@@ -2,6 +2,7 @@ package com.distribpatterns.tickloomexample.echo;
 
 import com.tickloom.Process;
 import com.tickloom.ProcessId;
+import com.tickloom.ProcessParams;
 import com.tickloom.messaging.Message;
 import com.tickloom.messaging.MessageBus;
 import com.tickloom.messaging.MessageType;
@@ -25,16 +26,14 @@ import static com.distribpatterns.tickloomexample.echo.EchoMessages.*;
 public class EchoServer extends Process {
 
     private final List<ProcessId> peerIds;
+    private final Storage storage;
 
-    public EchoServer(ProcessId id,
-                      List<ProcessId> peerIds,
-                      MessageBus messageBus,
-                      MessageCodec messageCodec,
+    public EchoServer(List<ProcessId> peerIds,
                       Storage storage,
-                      Clock clock,
-                      int timeoutTicks) {
-        super(id, messageBus, messageCodec, timeoutTicks, clock);
+                      ProcessParams processParams) {
+        super(processParams);
         this.peerIds = peerIds;
+        this.storage = storage;
     }
 
     @Override

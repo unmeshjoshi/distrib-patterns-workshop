@@ -1,6 +1,7 @@
 package com.distribpatterns.generation;
 
 import com.tickloom.ProcessId;
+import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
 import com.tickloom.messaging.*;
 import com.tickloom.network.MessageCodec;
@@ -33,10 +34,8 @@ public class GenerationVotingServer extends Replica {
     // Maximum retry attempts for failed elections
     private static final int MAX_ELECTION_ATTEMPTS = 5;
     
-    public GenerationVotingServer(ProcessId id, List<ProcessId> peerIds, MessageBus messageBus,
-                                 MessageCodec messageCodec, Storage storage, Clock clock,
-                                 int requestTimeoutTicks) {
-        super(id, peerIds, messageBus, messageCodec, storage, clock, requestTimeoutTicks);
+    public GenerationVotingServer(List<ProcessId> peerIds, Storage storage, ProcessParams params) {
+        super(peerIds, storage, params);
     }
     
     @Override

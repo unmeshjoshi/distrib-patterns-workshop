@@ -1,6 +1,7 @@
 package com.distribpatterns.quorumkv;
 
 import com.tickloom.ProcessId;
+import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
 import com.tickloom.messaging.*;
 import com.tickloom.network.MessageCodec;
@@ -24,12 +25,12 @@ public class QuorumKVReplica extends Replica {
     private final boolean enableReadRepair;
     private final boolean asyncReadRepair;
 
-    public QuorumKVReplica(ProcessId id, List<ProcessId> peerIds, MessageBus messageBus, MessageCodec messageCodec, Storage storage, Clock clock, int requestTimeoutTicks) {
-        this(id, peerIds, messageBus, messageCodec, storage, clock, requestTimeoutTicks, false, false);
+    public QuorumKVReplica(List<ProcessId> peerIds, Storage storage, ProcessParams processParams) {
+        this(peerIds, storage, processParams, false, false);
     }
 
-    public QuorumKVReplica(ProcessId id, List<ProcessId> peerIds, MessageBus messageBus, MessageCodec messageCodec, Storage storage, Clock clock, int requestTimeoutTicks, boolean enableReadRepair, boolean asyncReadRepair) {
-        super(id, peerIds, messageBus, messageCodec, storage, clock, requestTimeoutTicks);
+    public QuorumKVReplica(List<ProcessId> peerIds, Storage storage, ProcessParams processParams, boolean enableReadRepair, boolean asyncReadRepair) {
+        super(peerIds, storage, processParams);
         this.enableReadRepair = enableReadRepair;
         this.asyncReadRepair = asyncReadRepair;
     }

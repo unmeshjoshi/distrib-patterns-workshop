@@ -38,11 +38,7 @@ public class MultiPaxosWithHeartbeatsTest {
     void testAutomaticLeaderElection() throws IOException {
         System.out.println("\n=== TEST: Automatic Leader Election ===\n");
         
-        try (var cluster = new Cluster()
-                .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
-                .useSimulatedNetwork()
-                .build(MultiPaxosWithHeartbeatsServer::new)
-                .start()) {
+        try (var cluster = Cluster.create(List.of(ATHENS, BYZANTIUM, CYRENE), MultiPaxosWithHeartbeatsServer::new)) {
             
             MultiPaxosWithHeartbeatsServer athens = getServer(cluster, ATHENS);
             MultiPaxosWithHeartbeatsServer byzantium = getServer(cluster, BYZANTIUM);
@@ -72,11 +68,7 @@ public class MultiPaxosWithHeartbeatsTest {
     void testAutomaticHeartbeats() throws IOException {
         System.out.println("\n=== TEST: Automatic Heartbeats ===\n");
         
-        try (var cluster = new Cluster()
-                .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
-                .useSimulatedNetwork()
-                .build(MultiPaxosWithHeartbeatsServer::new)
-                .start()) {
+        try (var cluster = Cluster.create(List.of(ATHENS, BYZANTIUM, CYRENE), MultiPaxosWithHeartbeatsServer::new)) {
             
             MultiPaxosWithHeartbeatsServer athens = getServer(cluster, ATHENS);
             MultiPaxosWithHeartbeatsServer byzantium = getServer(cluster, BYZANTIUM);
@@ -113,11 +105,7 @@ public class MultiPaxosWithHeartbeatsTest {
     void testLeaderReplication() throws IOException {
         System.out.println("\n=== TEST: Leader Replication ===\n");
         
-        try (var cluster = new Cluster()
-                .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
-                .useSimulatedNetwork()
-                .build(MultiPaxosWithHeartbeatsServer::new)
-                .start()) {
+        try (var cluster = Cluster.create(List.of(ATHENS, BYZANTIUM, CYRENE), MultiPaxosWithHeartbeatsServer::new)) {
             
             MultiPaxosWithHeartbeatsServer athens = getServer(cluster, ATHENS);
             MultiPaxosWithHeartbeatsServer byzantium = getServer(cluster, BYZANTIUM);
@@ -162,11 +150,7 @@ public class MultiPaxosWithHeartbeatsTest {
     void testStableLeadership() throws IOException {
         System.out.println("\n=== TEST: Stable Leadership ===\n");
         
-        try (var cluster = new Cluster()
-                .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
-                .useSimulatedNetwork()
-                .build(MultiPaxosWithHeartbeatsServer::new)
-                .start()) {
+        try (var cluster = Cluster.create(List.of(ATHENS, BYZANTIUM, CYRENE), MultiPaxosWithHeartbeatsServer::new)) {
             
             MultiPaxosWithHeartbeatsServer athens = getServer(cluster, ATHENS);
             MultiPaxosWithHeartbeatsServer byzantium = getServer(cluster, BYZANTIUM);
@@ -204,11 +188,7 @@ public class MultiPaxosWithHeartbeatsTest {
     void testGenerationConvergence() throws IOException {
         System.out.println("\n=== TEST: Generation Convergence ===\n");
         
-        try (var cluster = new Cluster()
-                .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
-                .useSimulatedNetwork()
-                .build(MultiPaxosWithHeartbeatsServer::new)
-                .start()) {
+        try (var cluster = Cluster.create(List.of(ATHENS, BYZANTIUM, CYRENE), MultiPaxosWithHeartbeatsServer::new)) {
             
             MultiPaxosWithHeartbeatsServer athens = getServer(cluster, ATHENS);
             MultiPaxosWithHeartbeatsServer byzantium = getServer(cluster, BYZANTIUM);

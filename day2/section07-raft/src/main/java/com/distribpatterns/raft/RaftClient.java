@@ -1,6 +1,7 @@
 package com.distribpatterns.raft;
 
 import com.tickloom.ProcessId;
+import com.tickloom.ProcessParams;
 import com.tickloom.algorithms.replication.ClusterClient;
 import com.tickloom.future.ListenableFuture;
 import com.tickloom.messaging.*;
@@ -18,9 +19,8 @@ public class RaftClient extends ClusterClient {
     
     private Map<String, ListenableFuture<GetValueResponse>> pendingGetFutures = new HashMap<>();
     
-    public RaftClient(ProcessId clientId, List<ProcessId> replicaEndpoints, MessageBus messageBus,
-                     MessageCodec messageCodec, Clock clock, int timeoutTicks) {
-        super(clientId, replicaEndpoints, messageBus, messageCodec, clock, timeoutTicks);
+    public RaftClient(List<ProcessId> replicaEndpoints, ProcessParams processParams) {
+        super(replicaEndpoints, processParams);
     }
     
     @Override

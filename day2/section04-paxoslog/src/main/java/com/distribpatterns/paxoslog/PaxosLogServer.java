@@ -1,6 +1,7 @@
 package com.distribpatterns.paxoslog;
 
 import com.tickloom.ProcessId;
+import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
 import com.tickloom.messaging.*;
 import com.tickloom.network.MessageCodec;
@@ -38,9 +39,8 @@ public class PaxosLogServer extends Replica {
     // No-op operation for reads
     private static final NoOpOperation NO_OP = new NoOpOperation();
     
-    public PaxosLogServer(ProcessId id, List<ProcessId> allNodes, MessageBus messageBus,
-                          MessageCodec messageCodec, Storage storage, Clock clock, int requestTimeoutTicks) {
-        super(id, allNodes, messageBus, messageCodec, storage, clock, requestTimeoutTicks);
+    public PaxosLogServer(List<ProcessId> allNodes, Storage storage, ProcessParams processParams) {
+        super(allNodes, storage, processParams);
         // Simple server ID: hash of process ID
         this.serverId = id.toString().hashCode();
     }

@@ -1,6 +1,7 @@
 package com.distribpatterns.multipaxosheartbeats;
 
 import com.tickloom.ProcessId;
+import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
 import com.tickloom.messaging.*;
 import com.tickloom.network.MessageCodec;
@@ -60,9 +61,8 @@ public class MultiPaxosWithHeartbeatsServer extends Replica {
     // Track last heartbeat time
     private long lastHeartbeatTick = 0;
     
-    public MultiPaxosWithHeartbeatsServer(ProcessId id, List<ProcessId> allNodes, MessageBus messageBus,
-                            MessageCodec messageCodec, Storage storage, Clock clock, int requestTimeoutTicks) {
-        super(id, allNodes, messageBus, messageCodec, storage, clock, requestTimeoutTicks);
+    public MultiPaxosWithHeartbeatsServer(List<ProcessId> peerIds, Storage storage, ProcessParams processParams) {
+        super(peerIds, storage, processParams);
         this.serverId = id.toString().hashCode();
         
         // Start as follower and wait for heartbeat timeout

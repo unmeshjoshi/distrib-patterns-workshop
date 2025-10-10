@@ -33,11 +33,7 @@ public class GenerationVotingTest {
     @Test
     @DisplayName("Happy Path: Generate monotonically increasing numbers with 3 nodes")
     void testGenerateMonotonicNumbers() throws IOException {
-        try (var cluster = new Cluster()
-                .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
-                .useSimulatedNetwork()
-                .build(GenerationVotingServer::new)
-                .start()) {
+        try (var cluster = Cluster.create(List.of(ATHENS, BYZANTIUM, CYRENE), GenerationVotingServer::new)) {
             
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, GenerationVotingClient::new);
             
@@ -84,11 +80,7 @@ public class GenerationVotingTest {
     @Test
     @DisplayName("Multiple Coordinators: Different nodes can coordinate elections")
     void testMultipleCoordinators() throws IOException {
-        try (var cluster = new Cluster()
-                .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
-                .useSimulatedNetwork()
-                .build(GenerationVotingServer::new)
-                .start()) {
+        try (var cluster = Cluster.create(List.of(ATHENS, BYZANTIUM, CYRENE),GenerationVotingServer::new)) {
             
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, GenerationVotingClient::new);
             
