@@ -8,6 +8,6 @@ package com.distribpatterns.generation;
  * - Unique (quorum ensures no duplicates)
  * - Agreed upon by majority of replicas
  */
-public record NextGenerationResponse(int generation) {
+public record NextGenerationResponse(long generation) {
 }
 

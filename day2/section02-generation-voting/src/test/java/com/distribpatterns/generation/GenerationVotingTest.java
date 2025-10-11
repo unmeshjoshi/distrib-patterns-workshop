@@ -152,9 +152,9 @@ public class GenerationVotingTest {
             );
             
             // Get all results
-            int gen1 = future1.getResult().generation();
-            int gen2 = future2.getResult().generation();
-            int gen3 = future3.getResult().generation();
+            long gen1 = future1.getResult().generation();
+            long gen2 = future2.getResult().generation();
+            long gen3 = future3.getResult().generation();
             
             System.out.println("Generated: " + gen1 + ", " + gen2 + ", " + gen3);
             

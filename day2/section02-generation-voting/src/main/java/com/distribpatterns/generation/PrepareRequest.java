@@ -10,6 +10,6 @@ package com.distribpatterns.generation;
  * 
  * Note: Uses strict > (not >=) to ensure uniqueness without server IDs.
  */
-public record PrepareRequest(int proposedGeneration) {
+public record PrepareRequest(long proposedGeneration) {
 }
 
