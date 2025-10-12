@@ -80,21 +80,41 @@ public class GenerationVotingServer extends Replica {
     //based on the persisted state. We can always just work with the storage always.. but thats not optimal.
     //moreover, if storage is used just as a WAL, we need to construct in-memory state on initialization.
     private boolean isInitialised = false;
+    // If you have storage getters, load here. Example (uncomment if available):
+// this.generation = storage.readLong("generation", 0L);
+    private byte[] GENERATION_KEY = "generation".getBytes();
 
     public GenerationVotingServer(List<ProcessId> peerIds, Storage storage, ProcessParams params) {
         super(peerIds, storage, params);
-        // If you have storage getters, load here. Example (uncomment if available):
-        // this.generation = storage.readLong("generation", 0L);
-        storage.get("generation".getBytes()).handle((response, exception) -> {
+        load(GENERATION_KEY, storage);
+    }
+
+
+    //TODO: We can extract GenerationStateStore class which manages generation state.
+    // We will have it for more complex set of implementations like Paxos and Raft.
+    private void load(byte[] generationKey, Storage storage) {
+        storage.get(generationKey).handle((response, exception) -> {
             if (exception == null) {
                 if (response != null) {
                     this.generation = beToLong(response.value(), 0L);
                 }
-                isInitialised = true;
+                isInitialised = true; //Mark process as initialised to handle client requests.
                 return;
             }
             System.out.println("Error reading generation = " + exception.getMessage());
         });
+    }
+
+
+    private ListenableFuture<Boolean> store(byte[] generationKey, long finalProposedGeneration, Storage storage) {
+        // Idempotent commit
+        //TODO: We do not need a versionedvalue here
+        return storage.set(generationKey, new VersionedValue(longToBE(finalProposedGeneration), 1)).andThen((success, error)->{
+            if (error == null) {
+                generation = finalProposedGeneration;
+            }
+        });
+
     }
 
     public boolean isInitialised() {
@@ -151,14 +171,7 @@ public class GenerationVotingServer extends Replica {
                     // Quorum reached - election WON!
                     System.out.println(id + ": Election WON for generation " + proposedGeneration +
                             " (quorum: " + responses.size() + "/" + clusterSize() + ")");
-                    storeGeneration(proposedGeneration).handle((response, exception) -> {
-                        if (exception == null) {
-                            generation = proposedGeneration;
-                            respondToClient(clientMessage, new NextGenerationResponse(proposedGeneration));
-                        } else {
-                            respondToClient(clientMessage, failureResponse());
-                        }
-                    });
+                    respondToClient(clientMessage, new NextGenerationResponse(proposedGeneration));
                 })
                 .onFailure(error -> tryNextGeneration(proposedGeneration, attempt, clientMessage));
 
@@ -184,18 +197,6 @@ public class GenerationVotingServer extends Replica {
         // Retry with next generation number
         runElection(nextGeneration, attempt + 1, clientMessage);
     }
-
-    private ListenableFuture<Boolean> storeGeneration(long finalProposedGeneration) {
-        // Idempotent commit
-        //TODO: We do not need a versionedvalue here
-        return storage.set("generation".getBytes(), new VersionedValue(longToBE(finalProposedGeneration), 1)).andThen((success, error)->{
-            if (error == null) {
-                generation = finalProposedGeneration;
-            }
-        });
-
-    }
-
     private static boolean isPromised(PrepareResponse response) {
         return response != null && response.promised();
     }
@@ -248,17 +249,22 @@ public class GenerationVotingServer extends Replica {
 
     private ListenableFuture<Boolean> tryAccept(Message message, PrepareRequest request) {
         final long proposed = request.proposedGeneration();
-        ListenableFuture result = new ListenableFuture();
         // Strict '>' rule: fast reject as an already-completed future
         if (proposed <= generation) {
             System.out.println(id + ": REJECTED generation " + proposed +
                     " from " + message.source() + " (current: " + generation + ")");
+            ListenableFuture result = new ListenableFuture();
             result.complete(false);
             return result;
         }
 
+        return accept(message, proposed);
+    }
+
+    private ListenableFuture accept(Message message, long proposed) {
+        ListenableFuture result = new ListenableFuture();
         // Persist first; only then consider it "promised"
-        storeGeneration(proposed).handle((ok, err) -> {
+        store(GENERATION_KEY, proposed, storage).handle((ok, err) -> {
             if (err == null && Boolean.TRUE.equals(ok)) {
                 // If storeGeneration doesn't update in-memory, do it here:
                 // this.generation = proposed;
