@@ -34,7 +34,10 @@ public class GenerationVotingTest {
     @DisplayName("Happy Path: Generate monotonically increasing numbers with 3 nodes")
     void testGenerateMonotonicNumbers() throws IOException {
         try (var cluster = Cluster.create(List.of(ATHENS, BYZANTIUM, CYRENE), GenerationVotingServer::new)) {
-            
+
+            assertEventually(cluster, ()->
+                    getProcess(cluster, ATHENS).isInitialised() && getProcess(cluster, BYZANTIUM).isInitialised() && getProcess(cluster, CYRENE).isInitialised());
+
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, GenerationVotingClient::new);
             
             // Request 1: Should get generation 1
@@ -76,12 +79,18 @@ public class GenerationVotingTest {
             System.out.println("\n=== SUCCESS: All generations monotonically increasing ===");
         }
     }
-    
+
+    private static GenerationVotingServer getProcess(Cluster cluster, ProcessId processId) {
+        return (GenerationVotingServer)cluster.getProcess(processId);
+    }
+
     @Test
     @DisplayName("Multiple Coordinators: Different nodes can coordinate elections")
     void testMultipleCoordinators() throws IOException {
         try (var cluster = Cluster.create(List.of(ATHENS, BYZANTIUM, CYRENE),GenerationVotingServer::new)) {
-            
+            assertEventually(cluster, ()->
+                    getProcess(cluster, ATHENS).isInitialised() && getProcess(cluster, BYZANTIUM).isInitialised() && getProcess(cluster, CYRENE).isInitialised());
+
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, GenerationVotingClient::new);
             
             // Request to Athens
@@ -123,7 +132,10 @@ public class GenerationVotingTest {
                 .useSimulatedNetwork()
                 .build(GenerationVotingServer::new)
                 .start()) {
-            
+
+            assertEventually(cluster, ()->
+                    getProcess(cluster, ATHENS).isInitialised() && getProcess(cluster, BYZANTIUM).isInitialised() && getProcess(cluster, CYRENE).isInitialised());
+
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, GenerationVotingClient::new);
             
             // Send multiple concurrent requests to same coordinator
@@ -180,7 +192,7 @@ public class GenerationVotingTest {
      * Helper to get server instance from cluster.
      */
     private static GenerationVotingServer getServer(Cluster cluster, ProcessId id) {
-        return (GenerationVotingServer) cluster.getProcess(id);
+        return getProcess(cluster, id);
     }
 }
 
