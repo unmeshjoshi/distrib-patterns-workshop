@@ -28,7 +28,7 @@ class TwoPhaseServerTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(TwoPhaseServer::new)
+                .build((peerIds, processParams) -> new TwoPhaseServer(peerIds, processParams))
                 .start()) {
 
             var client = cluster.newClientConnectedTo(ALICE, ATHENS, TwoPhaseClient::new);

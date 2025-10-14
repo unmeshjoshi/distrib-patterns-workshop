@@ -49,8 +49,8 @@ public class MultiPaxosServer extends Replica {
     // No-op operation for reads
     private static final NoOpOperation NO_OP = new NoOpOperation();
     
-    public MultiPaxosServer(List<ProcessId> allNodes, Storage storage, ProcessParams processParams) {
-        super(allNodes, storage, processParams);
+    public MultiPaxosServer(List<ProcessId> allNodes, ProcessParams processParams) {
+        super(allNodes, processParams);
         this.serverId = id.toString().hashCode();
     }
     

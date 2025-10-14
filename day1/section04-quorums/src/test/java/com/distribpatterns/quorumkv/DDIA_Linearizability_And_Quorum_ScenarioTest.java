@@ -35,7 +35,7 @@ public final class DDIA_Linearizability_And_Quorum_ScenarioTest
     public DDIA_Linearizability_And_Quorum_ScenarioTest() throws IOException {
         super(
                 List.of(ATHENS, BYZANTIUM, CYRENE),
-                QuorumKVReplica::new,
+                (peerIds, processParams) -> new QuorumKVReplica(peerIds, processParams),
                 QuorumKVClient::new,
                 r -> r == null || r.value() == null ? null : new String(r.value(), StandardCharsets.UTF_8)
         );

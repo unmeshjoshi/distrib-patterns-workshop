@@ -44,7 +44,7 @@ public class RecoveryAndCatchUpScenariosTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(MultiPaxosWithHeartbeatsServer::new)
+                .build((peerIds, processParams) -> new MultiPaxosWithHeartbeatsServer(peerIds, processParams))
                 .start()) {
             
             MultiPaxosWithHeartbeatsServer athens = getServer(cluster, ATHENS);
@@ -129,7 +129,7 @@ public class RecoveryAndCatchUpScenariosTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(MultiPaxosWithHeartbeatsServer::new)
+                .build((peerIds, processParams) -> new MultiPaxosWithHeartbeatsServer(peerIds, processParams))
                 .start()) {
             
             MultiPaxosWithHeartbeatsServer athens = getServer(cluster, ATHENS);
@@ -208,7 +208,7 @@ public class RecoveryAndCatchUpScenariosTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE, DELPHI))
                 .useSimulatedNetwork()
-                .build(MultiPaxosWithHeartbeatsServer::new)
+                .build((peerIds, processParams) -> new MultiPaxosWithHeartbeatsServer(peerIds, processParams))
                 .start()) {
             
             MultiPaxosWithHeartbeatsServer athens = getServer(cluster, ATHENS);
@@ -307,7 +307,7 @@ public class RecoveryAndCatchUpScenariosTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(MultiPaxosWithHeartbeatsServer::new)
+                .build((peerIds, processParams) -> new MultiPaxosWithHeartbeatsServer(peerIds, processParams))
                 .start()) {
             
             MultiPaxosWithHeartbeatsServer athens = getServer(cluster, ATHENS);
@@ -374,7 +374,7 @@ public class RecoveryAndCatchUpScenariosTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(MultiPaxosWithHeartbeatsServer::new)
+                .build((peerIds, processParams) -> new MultiPaxosWithHeartbeatsServer(peerIds, processParams))
                 .start()) {
             
             MultiPaxosWithHeartbeatsServer athens = getServer(cluster, ATHENS);
@@ -465,7 +465,7 @@ public class RecoveryAndCatchUpScenariosTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(MultiPaxosWithHeartbeatsServer::new)
+                .build((peerIds, processParams) -> new MultiPaxosWithHeartbeatsServer(peerIds, processParams))
                 .start()) {
             
             MultiPaxosWithHeartbeatsServer athens = getServer(cluster, ATHENS);
@@ -554,7 +554,7 @@ public class RecoveryAndCatchUpScenariosTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(MultiPaxosWithHeartbeatsServer::new)
+                .build((peerIds, processParams) -> new MultiPaxosWithHeartbeatsServer(peerIds, processParams))
                 .start()) {
             
             MultiPaxosWithHeartbeatsServer athens = getServer(cluster, ATHENS);

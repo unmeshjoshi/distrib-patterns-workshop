@@ -33,7 +33,7 @@ public class GenerationVotingTest {
     @Test
     @DisplayName("Happy Path: Generate monotonically increasing numbers with 3 nodes")
     void testGenerateMonotonicNumbers() throws IOException {
-        try (var cluster = Cluster.create(List.of(ATHENS, BYZANTIUM, CYRENE), GenerationVotingServer::new)) {
+        try (var cluster = Cluster.create(List.of(ATHENS, BYZANTIUM, CYRENE), (peerIds, processParams) -> new GenerationVotingServer(peerIds, processParams))) {
 
             assertEventually(cluster, ()->
                     getProcess(cluster, ATHENS).isInitialised() && getProcess(cluster, BYZANTIUM).isInitialised() && getProcess(cluster, CYRENE).isInitialised());
@@ -87,7 +87,7 @@ public class GenerationVotingTest {
     @Test
     @DisplayName("Multiple Coordinators: Different nodes can coordinate elections")
     void testMultipleCoordinators() throws IOException {
-        try (var cluster = Cluster.create(List.of(ATHENS, BYZANTIUM, CYRENE),GenerationVotingServer::new)) {
+        try (var cluster = Cluster.create(List.of(ATHENS, BYZANTIUM, CYRENE), (peerIds, processParams) -> new GenerationVotingServer(peerIds, processParams))) {
             assertEventually(cluster, ()->
                     getProcess(cluster, ATHENS).isInitialised() && getProcess(cluster, BYZANTIUM).isInitialised() && getProcess(cluster, CYRENE).isInitialised());
 
@@ -130,7 +130,7 @@ public class GenerationVotingTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(GenerationVotingServer::new)
+                .build((peerIds, processParams) -> new GenerationVotingServer(peerIds, processParams))
                 .start()) {
 
             assertEventually(cluster, ()->

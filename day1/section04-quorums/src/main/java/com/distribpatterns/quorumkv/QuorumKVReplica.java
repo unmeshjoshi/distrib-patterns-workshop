@@ -25,12 +25,12 @@ public class QuorumKVReplica extends Replica {
     private final boolean enableReadRepair;
     private final boolean asyncReadRepair;
 
-    public QuorumKVReplica(List<ProcessId> peerIds, Storage storage, ProcessParams processParams) {
-        this(peerIds, storage, processParams, false, false);
+    public QuorumKVReplica(List<ProcessId> peerIds, ProcessParams processParams) {
+        this(peerIds, processParams, false, false);
     }
 
-    public QuorumKVReplica(List<ProcessId> peerIds, Storage storage, ProcessParams processParams, boolean enableReadRepair, boolean asyncReadRepair) {
-        super(peerIds, storage, processParams);
+    public QuorumKVReplica(List<ProcessId> peerIds, ProcessParams processParams, boolean enableReadRepair, boolean asyncReadRepair) {
+        super(peerIds, processParams);
         this.enableReadRepair = enableReadRepair;
         this.asyncReadRepair = asyncReadRepair;
     }

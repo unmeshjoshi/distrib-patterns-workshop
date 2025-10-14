@@ -34,7 +34,7 @@ public class QuorumBasicScenariosTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(QuorumKVReplica::new)
+                .build((peerIds, processParams) -> new QuorumKVReplica(peerIds, processParams))
                 .start()) {
 
             var client = cluster.newClientConnectedTo(ALICE, ATHENS, QuorumKVClient::new);
@@ -69,7 +69,7 @@ public class QuorumBasicScenariosTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(QuorumKVReplica::new)
+                .build((peerIds, processParams) -> new QuorumKVReplica(peerIds, processParams))
                 .start()) {
 
             var client = cluster.newClientConnectedTo(ALICE, ATHENS, QuorumKVClient::new);
@@ -101,7 +101,7 @@ public class QuorumBasicScenariosTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(QuorumKVReplica::new)
+                .build((peerIds, processParams) -> new QuorumKVReplica(peerIds, processParams))
                 .start()) {
 
             var alice = cluster.newClientConnectedTo(ALICE, ATHENS, QuorumKVClient::new);
@@ -146,7 +146,7 @@ public class QuorumBasicScenariosTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(QuorumKVReplica::new)
+                .build((peerIds, processParams) -> new QuorumKVReplica(peerIds, processParams))
                 .start()) {
 
             var alice = cluster.newClientConnectedTo(ALICE, ATHENS, QuorumKVClient::new);
@@ -187,7 +187,7 @@ public class QuorumBasicScenariosTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(QuorumKVReplica::new)
+                .build((peerIds, processParams) -> new QuorumKVReplica(peerIds, processParams))
                 .start()) {
 
             var alice = cluster.newClientConnectedTo(ALICE, ATHENS, QuorumKVClient::new);

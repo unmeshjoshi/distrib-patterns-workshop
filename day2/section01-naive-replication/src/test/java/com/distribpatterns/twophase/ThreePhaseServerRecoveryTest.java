@@ -34,7 +34,7 @@ public class ThreePhaseServerRecoveryTest extends ClusterTest<ThreePhaseClient, 
     public ThreePhaseServerRecoveryTest() throws IOException {
         super(
             List.of(ATHENS, BYZANTIUM, CYRENE),
-            ThreePhaseServer::new,
+            (peerIds, processParams) -> new ThreePhaseServer(peerIds, processParams),
             ThreePhaseClient::new,
             response -> response == null ? null : response.newValue()
         );

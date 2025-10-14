@@ -48,7 +48,8 @@ public class PaxosTest {
     void testBasicConsensus() throws IOException {
         System.out.println("\n=== TEST: Basic Consensus ===\n");
 
-        try (var cluster = Cluster.createSimulated(List.of(ATHENS, BYZANTIUM, CYRENE), PaxosServer::new)) {
+        try (var cluster = Cluster.createSimulated(List.of(ATHENS, BYZANTIUM, CYRENE), (peerIds, processParams) -> new PaxosServer(peerIds, processParams))) {
+            assertEventually(cluster, () -> cluster.areAllNodesInitialized());
 
             var client = cluster.newClientConnectedTo(CLIENT_ALICE, ATHENS, PaxosClient::new);
 
@@ -88,11 +89,9 @@ public class PaxosTest {
     void testConcurrentProposals() throws IOException {
         System.out.println("\n=== TEST: Concurrent Proposals ===\n");
 
-        try (var cluster = new Cluster()
-                .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
-                .useSimulatedNetwork()
-                .build(PaxosServer::new)
-                .start()) {
+        try (var cluster = Cluster.createSimulated(List.of(ATHENS, BYZANTIUM, CYRENE), (peerIds, processParams) -> new PaxosServer(peerIds, processParams))) {
+
+            assertEventually(cluster, () -> cluster.areAllNodesInitialized());
 
             assertEventually(cluster, () ->
                     getProcess(cluster, ATHENS).isInitialised() && getProcess(cluster, BYZANTIUM).isInitialised() && getProcess(cluster, CYRENE).isInitialised());
@@ -144,11 +143,9 @@ public class PaxosTest {
     void testSetValueOperation() throws IOException {
         System.out.println("\n=== TEST: Set Value Operation ===\n");
 
-        try (var cluster = new Cluster()
-                .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
-                .useSimulatedNetwork()
-                .build(PaxosServer::new)
-                .start()) {
+        try (var cluster = Cluster.createSimulated(List.of(ATHENS, BYZANTIUM, CYRENE), (peerIds, processParams) -> new PaxosServer(peerIds, processParams))) {
+
+            assertEventually(cluster, () -> cluster.areAllNodesInitialized());
 
             var client = cluster.newClientConnectedTo(CLIENT_ALICE, ATHENS, PaxosClient::new);
 

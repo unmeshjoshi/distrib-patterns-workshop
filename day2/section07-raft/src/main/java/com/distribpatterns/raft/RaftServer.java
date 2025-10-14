@@ -51,8 +51,8 @@ public class RaftServer extends Replica {
     // ========== LEADER TRACKING ==========
     private ProcessId currentLeader = null;
 
-    public RaftServer(List<ProcessId> allNodes, Storage storage, ProcessParams processParams, int electionTimeoutTicks) {
-        super(allNodes, storage, processParams);
+    public RaftServer(List<ProcessId> allNodes, ProcessParams processParams, int electionTimeoutTicks) {
+        super(allNodes, processParams);
 
         // Initialize log with dummy entry at index 0
         log.add(new LogEntry(0, 0, new NoOpOperation()));

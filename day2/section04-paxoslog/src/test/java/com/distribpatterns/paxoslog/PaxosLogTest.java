@@ -31,7 +31,7 @@ public class PaxosLogTest {
         System.out.println("\n=== TEST: Basic SetValue ===\n");
 
         //Not doing createSimulated just to the same code if we switch to real networking with Java NIO.
-        try (var cluster = Cluster.create(List.of(ATHENS, BYZANTIUM, CYRENE), PaxosLogServer::new)) {
+        try (var cluster = Cluster.create(List.of(ATHENS, BYZANTIUM, CYRENE), (peerIds, processParams) -> new PaxosLogServer(peerIds, processParams))) {
             
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, PaxosLogClient::new);
             
@@ -72,7 +72,7 @@ public class PaxosLogTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(PaxosLogServer::new)
+                .build((peerIds, processParams) -> new PaxosLogServer(peerIds, processParams))
                 .start()) {
             
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, PaxosLogClient::new);
@@ -113,7 +113,7 @@ public class PaxosLogTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(PaxosLogServer::new)
+                .build((peerIds, processParams) -> new PaxosLogServer(peerIds, processParams))
                 .start()) {
             
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, PaxosLogClient::new);
@@ -157,7 +157,7 @@ public class PaxosLogTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(PaxosLogServer::new)
+                .build((peerIds, processParams) -> new PaxosLogServer(peerIds, processParams))
                 .start()) {
             
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, PaxosLogClient::new);

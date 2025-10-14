@@ -39,8 +39,8 @@ public class PaxosLogServer extends Replica {
     // No-op operation for reads
     private static final NoOpOperation NO_OP = new NoOpOperation();
     
-    public PaxosLogServer(List<ProcessId> allNodes, Storage storage, ProcessParams processParams) {
-        super(allNodes, storage, processParams);
+    public PaxosLogServer(List<ProcessId> allNodes, ProcessParams processParams) {
+        super(allNodes, processParams);
         // Simple server ID: hash of process ID
         this.serverId = id.toString().hashCode();
     }

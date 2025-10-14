@@ -42,7 +42,7 @@ public class LeaderElectionTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(MultiPaxosWithHeartbeatsServer::new)
+                .build((peerIds, processParams) -> new MultiPaxosWithHeartbeatsServer(peerIds, processParams))
                 .start()) {
             
             MultiPaxosWithHeartbeatsServer athens = getServer(cluster, ATHENS);
@@ -98,7 +98,7 @@ public class LeaderElectionTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(MultiPaxosWithHeartbeatsServer::new)
+                .build((peerIds, processParams) -> new MultiPaxosWithHeartbeatsServer(peerIds, processParams))
                 .start()) {
             
             MultiPaxosWithHeartbeatsServer athens = getServer(cluster, ATHENS);
@@ -159,7 +159,7 @@ public class LeaderElectionTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE, DELPHI, EPHESUS))
                 .useSimulatedNetwork()
-                .build(MultiPaxosWithHeartbeatsServer::new)
+                .build((peerIds, processParams) -> new MultiPaxosWithHeartbeatsServer(peerIds, processParams))
                 .start()) {
             
             MultiPaxosWithHeartbeatsServer athens = getServer(cluster, ATHENS);
@@ -219,7 +219,7 @@ public class LeaderElectionTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(MultiPaxosWithHeartbeatsServer::new)
+                .build((peerIds, processParams) -> new MultiPaxosWithHeartbeatsServer(peerIds, processParams))
                 .start()) {
             
             MultiPaxosWithHeartbeatsServer athens = getServer(cluster, ATHENS);
@@ -299,7 +299,7 @@ public class LeaderElectionTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(MultiPaxosWithHeartbeatsServer::new)
+                .build((peerIds, processParams) -> new MultiPaxosWithHeartbeatsServer(peerIds, processParams))
                 .start()) {
             
             MultiPaxosWithHeartbeatsServer athens = getServer(cluster, ATHENS);
@@ -337,7 +337,7 @@ public class LeaderElectionTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(MultiPaxosWithHeartbeatsServer::new)
+                .build((peerIds, processParams) -> new MultiPaxosWithHeartbeatsServer(peerIds, processParams))
                 .start()) {
             
             MultiPaxosWithHeartbeatsServer athens = getServer(cluster, ATHENS);
@@ -387,7 +387,7 @@ public class LeaderElectionTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(MultiPaxosWithHeartbeatsServer::new)
+                .build((peerIds, processParams) -> new MultiPaxosWithHeartbeatsServer(peerIds, processParams))
                 .start()) {
             
             MultiPaxosWithHeartbeatsServer athens = getServer(cluster, ATHENS);

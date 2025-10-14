@@ -33,7 +33,7 @@ public class MultiPaxosTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(MultiPaxosServer::new)
+                .build((peerIds, processParams) -> new MultiPaxosServer(peerIds, processParams))
                 .start()) {
             
             var athens = getServer(cluster, ATHENS);
@@ -57,7 +57,7 @@ public class MultiPaxosTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(MultiPaxosServer::new)
+                .build((peerIds, processParams) -> new MultiPaxosServer(peerIds, processParams))
                 .start()) {
             
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, MultiPaxosClient::new);
@@ -98,7 +98,7 @@ public class MultiPaxosTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(MultiPaxosServer::new)
+                .build((peerIds, processParams) -> new MultiPaxosServer(peerIds, processParams))
                 .start()) {
             
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, MultiPaxosClient::new);
@@ -140,7 +140,7 @@ public class MultiPaxosTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(MultiPaxosServer::new)
+                .build((peerIds, processParams) -> new MultiPaxosServer(peerIds, processParams))
                 .start()) {
             
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, MultiPaxosClient::new);
@@ -174,7 +174,7 @@ public class MultiPaxosTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(MultiPaxosServer::new)
+                .build((peerIds, processParams) -> new MultiPaxosServer(peerIds, processParams))
                 .start()) {
             
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, MultiPaxosClient::new);

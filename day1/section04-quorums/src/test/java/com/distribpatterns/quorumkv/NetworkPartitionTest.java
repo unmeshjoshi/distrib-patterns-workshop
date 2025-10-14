@@ -37,7 +37,7 @@ public class NetworkPartitionTest {
     @Test
     @DisplayName("Split-brain prevention: majority value persists after heal")
     void shouldPreventSplitBrainDuringNetworkPartition() throws IOException {
-        try (var cluster = Cluster.createSimulated(List.of(ATHENS, BYZANTIUM, CYRENE, DELPHI, SPARTA), QuorumKVReplica::new)) {
+        try (var cluster = Cluster.createSimulated(List.of(ATHENS, BYZANTIUM, CYRENE, DELPHI, SPARTA), (peerIds, processParams) -> new QuorumKVReplica(peerIds, processParams))) {
 
             // clients
             var minorityClient = cluster.newClientConnectedTo(MINORITY_CLIENT, ATHENS, QuorumKVClient::new);
@@ -86,7 +86,7 @@ public class NetworkPartitionTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE, DELPHI, SPARTA))
                 .useSimulatedNetwork()
-                .build(QuorumKVReplica::new)
+                .build((peerIds, processParams) -> new QuorumKVReplica(peerIds, processParams))
                 .start()) {
 
             var clientWriter = cluster.newClientConnectedTo(ProcessId.of("client1"), CYRENE, QuorumKVClient::new);
@@ -178,7 +178,7 @@ public class NetworkPartitionTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE, DELPHI, SPARTA))
                 .useSimulatedNetwork()
-                .build(QuorumKVReplica::new)
+                .build((peerIds, processParams) -> new QuorumKVReplica(peerIds, processParams))
                 .start()) {
 
             var minorityClient = cluster.newClientConnectedTo(MINORITY_CLIENT, ATHENS, QuorumKVClient::new);

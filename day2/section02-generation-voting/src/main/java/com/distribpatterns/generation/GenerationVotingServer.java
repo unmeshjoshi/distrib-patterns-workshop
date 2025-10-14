@@ -13,6 +13,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Generation Voting Server - Distributed monotonic number generation using quorum voting.
@@ -75,50 +76,26 @@ public class GenerationVotingServer extends Replica {
     // Maximum retry attempts for failed elections
     private static final int MAX_ELECTION_ATTEMPTS = 5;
 
-    //Move this to tickloom. Each process needs some signal to know it is ready to accept requests
-    //This is particularly true for implementations like Paxos and Raft where we need to make decisions
-    //based on the persisted state. We can always just work with the storage always.. but thats not optimal.
-    //moreover, if storage is used just as a WAL, we need to construct in-memory state on initialization.
-    private boolean isInitialised = false;
-    // If you have storage getters, load here. Example (uncomment if available):
-// this.generation = storage.readLong("generation", 0L);
-    private byte[] GENERATION_KEY = "generation".getBytes();
+    private static final String GENERATION_KEY = "generation";
 
-    public GenerationVotingServer(List<ProcessId> peerIds, Storage storage, ProcessParams params) {
-        super(peerIds, storage, params);
-        load(GENERATION_KEY, storage);
+    public GenerationVotingServer(List<ProcessId> peerIds, ProcessParams params) {
+        super(peerIds, params);
+        // Initialization is handled by Process.initialise()
     }
 
-
-    //TODO: We can extract GenerationStateStore class which manages generation state.
-    // We will have it for more complex set of implementations like Paxos and Raft.
-    private void load(byte[] generationKey, Storage storage) {
-        storage.get(generationKey).handle((response, exception) -> {
-            if (exception == null) {
-                if (response != null) {
-                    this.generation = beToLong(response.value(), 0L);
-                }
-                isInitialised = true; //Mark process as initialised to handle client requests.
+    @Override
+    protected ListenableFuture<?> onInit() {
+        // Load initial generation using standardized method
+        return load(GENERATION_KEY, Long.class).handle((loadedGeneration, error) -> {
+            if (error != null) {
+                System.err.println(id + ": Failed to load generation: " + error.getMessage());
                 return;
             }
-            System.out.println("Error reading generation = " + exception.getMessage());
-        });
-    }
 
-
-    private ListenableFuture<Boolean> store(byte[] generationKey, long finalProposedGeneration, Storage storage) {
-        // Idempotent commit
-        //TODO: We do not need a versionedvalue here
-        return storage.set(generationKey, new VersionedValue(longToBE(finalProposedGeneration), 1)).andThen((success, error)->{
-            if (error == null) {
-                generation = finalProposedGeneration;
+            if (loadedGeneration != null) {
+                generation = loadedGeneration;
             }
         });
-
-    }
-
-    public boolean isInitialised() {
-        return isInitialised;
     }
 
     @Override
@@ -264,17 +241,14 @@ public class GenerationVotingServer extends Replica {
     private ListenableFuture accept(Message message, long proposed) {
         ListenableFuture result = new ListenableFuture();
         // Persist first; only then consider it "promised"
-        store(GENERATION_KEY, proposed, storage).handle((ok, err) -> {
-            if (err == null && Boolean.TRUE.equals(ok)) {
-                // If storeGeneration doesn't update in-memory, do it here:
-                // this.generation = proposed;
-                System.out.println(id + ": ACCEPTED generation " + proposed + " from " + message.source());
-                result.complete(true);
-            } else {
-                System.out.println(id + ": PERSIST FAILED for generation " + proposed +
-                        " from " + message.source() + " (err=" + (err != null ? err : "unknown") + ")");
-                result.complete(false);
-            }
+        persist(GENERATION_KEY, proposed, () -> {
+            generation = proposed;
+            System.out.println(id + ": ACCEPTED generation " + proposed + " from " + message.source());
+            result.complete(true);
+        }, () -> {
+            System.out.println(id + ": PERSIST FAILED for generation " + proposed +
+                    " from " + message.source());
+            result.complete(false);
         });
         return result;
     }
@@ -303,13 +277,4 @@ public class GenerationVotingServer extends Replica {
     }
 
 
-    private static byte[] longToBE(long v) {
-        return ByteBuffer.allocate(Long.BYTES).order(ByteOrder.BIG_ENDIAN).putLong(v).array();
-    }
-
-    private static long beToLong(byte[] b, long def) {
-        if (b == null) return def;
-        if (b.length != Long.BYTES) throw new IllegalStateException("corrupt generation payload len=" + b.length);
-        return ByteBuffer.wrap(b).order(ByteOrder.BIG_ENDIAN).getLong();
-    }
 }

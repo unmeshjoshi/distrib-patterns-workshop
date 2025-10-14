@@ -61,8 +61,8 @@ public class MultiPaxosWithHeartbeatsServer extends Replica {
     // Track last heartbeat time
     private long lastHeartbeatTick = 0;
     
-    public MultiPaxosWithHeartbeatsServer(List<ProcessId> peerIds, Storage storage, ProcessParams processParams) {
-        super(peerIds, storage, processParams);
+    public MultiPaxosWithHeartbeatsServer(List<ProcessId> peerIds, ProcessParams processParams) {
+        super(peerIds, processParams);
         this.serverId = id.toString().hashCode();
         
         // Start as follower and wait for heartbeat timeout

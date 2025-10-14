@@ -51,8 +51,8 @@ public class ThreePhaseServer extends Replica {
     // Participant state: prepared operations waiting for commit
     private final Map<String, Operation> preparedOperations = new HashMap<>();
     
-    public ThreePhaseServer(List<ProcessId> peerIds,Storage storage, ProcessParams processParams) {
-        super(peerIds, storage, processParams);
+    public ThreePhaseServer(List<ProcessId> peerIds, ProcessParams processParams) {
+        super(peerIds, processParams);
     }
     
     @Override

@@ -26,14 +26,11 @@ import static com.distribpatterns.tickloomexample.echo.EchoMessages.*;
 public class EchoServer extends Process {
 
     private final List<ProcessId> peerIds;
-    private final Storage storage;
 
     public EchoServer(List<ProcessId> peerIds,
-                      Storage storage,
                       ProcessParams processParams) {
         super(processParams);
         this.peerIds = peerIds;
-        this.storage = storage;
     }
 
     @Override

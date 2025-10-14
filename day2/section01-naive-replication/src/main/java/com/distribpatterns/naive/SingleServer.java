@@ -24,8 +24,8 @@ public class SingleServer extends Replica {
     
     private final Map<String, Integer> counters = new HashMap<>();
     
-    public SingleServer(List<ProcessId> peerIds, Storage storage, ProcessParams processParams) {
-        super(peerIds, storage, processParams);
+    public SingleServer(List<ProcessId> peerIds, ProcessParams processParams) {
+        super(peerIds, processParams);
     }
     
     @Override

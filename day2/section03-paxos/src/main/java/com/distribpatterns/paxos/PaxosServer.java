@@ -22,41 +22,41 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 
 public class PaxosServer extends Replica {
-    private static final byte[] PAXOS_STATE = "paxos_state".getBytes();
+    private static final String PAXOS_STATE_KEY = "paxos_state";
+    
     // State machine
     private final Map<String, Integer> counters = new HashMap<>();
     private final Map<String, String> kvStore = new HashMap<>();
-    private boolean isInitialised = false;
-
-
+    
     // Paxos state (immutable, recreated on each update)
     private PaxosState state = new PaxosState();
-
+    
     // For generation number
     private final AtomicInteger generationCounter = new AtomicInteger(0);
-
+    
     // Retry mechanism
     private static final int MAX_RETRIES = 3;
 
-    public PaxosServer(List<ProcessId> allNodes, Storage storage, ProcessParams processParams) {
-        super(allNodes, storage, processParams);
-        storage.get(PAXOS_STATE).handle((value, error)->{
+    public PaxosServer(List<ProcessId> allNodes, ProcessParams processParams) {
+        super(allNodes, processParams);
+        // Initialization is handled by Process.initialise()
+    }
+
+    @Override
+    protected ListenableFuture<?> onInit() {
+        // Load initial state using standardized method
+        return load(PAXOS_STATE_KEY, PaxosState.class).handle((loadedState, error) -> {
             if (error != null) {
-                System.out.println("Error reading paxos state = " + error.getMessage());
+                System.err.println(id + ": Failed to load PaxosState: " + error.getMessage());
                 return;
             }
 
-            if (value != null) { //we have persisted some state,
-                // so need to initialise by reading it.
-                state = messageCodec.decode(value.value(), PaxosState.class);
+            if (loadedState != null) {
+                state = loadedState;
+            } else {
+                state = new PaxosState();
             }
-            isInitialised = true;
         });
-    }
-
-
-    public boolean isInitialised() {
-        return isInitialised;
     }
 
     @Override
@@ -158,24 +158,6 @@ public class PaxosServer extends Replica {
     private static boolean isPromised(PrepareResponse response) {
         return response != null && response.promised();
     }
-    /**
-     * Generic method to handle the common pattern of:
-     * 1. Update state
-     * 2. Persist state
-     * 3. Execute success callback on successful persistence
-     * 4. Handle errors silently (client will timeout)
-     */
-    private void updateStateAndPersist(PaxosState newState, Runnable onSuccess) {
-        state = newState;
-        ListenableFuture<Boolean> storageFuture = persistPaxosState(state);
-        storageFuture.handle((result, error) -> {
-            if (error != null) {
-                return; // Don't send any response if there is storage error.
-                // The client will timeout, and may try with other server.
-            }
-            onSuccess.run();
-        });
-    }
 
     private void handlePrepareRequest(Message message) {
         PrepareRequest request = deserializePayload(message.payload(), PrepareRequest.class);
@@ -185,7 +167,8 @@ public class PaxosServer extends Replica {
 
         if (state.canPromise(generation)) {
             // Promise this generation
-            updateStateAndPersist(state.promise(generation), () -> {
+            state = state.promise(generation);
+            persist(PAXOS_STATE_KEY, state, () -> {
                 // Send back our previously accepted value (if any)
                 PrepareResponse response = new PrepareResponse(
                         true,
@@ -222,7 +205,8 @@ public class PaxosServer extends Replica {
 
         if (state.canAccept(generation)) {
             // Accept this value
-            updateStateAndPersist(state.accept(generation, value), () -> {
+            state = state.accept(generation, value);
+            persist(PAXOS_STATE_KEY, state, () -> {
                 System.out.println(id + ": ACCEPTED value " + value + " for generation " + generation);
                 send(createMessage(message.source(), message.correlationId(),
                         new ProposeResponse(true), PaxosMessageTypes.PROPOSE_RESPONSE));
@@ -247,7 +231,8 @@ public class PaxosServer extends Replica {
         // to be with
         if (state.canAccept(generation)) {
             // Commit and execute the committedOperation
-            updateStateAndPersist(state.commit(generation, committedOperation), () -> {
+            state = state.commit(generation, committedOperation);
+            persist(PAXOS_STATE_KEY, state, () -> {
                 String result = executeOperation(committedOperation);
                 System.out.println(id + ": COMMITTED and executed committedOperation " + committedOperation + ", result: " + result);
                 boolean clientRequestCommitted = committedOperation.equals(request.clientMessage().operation());
@@ -262,10 +247,6 @@ public class PaxosServer extends Replica {
                 waitingList.handleResponse(request.clientKey(), new ExecuteResponse(clientRequestCommitted, result), id);
             });
         }
-    }
-    private ListenableFuture<Boolean> persistPaxosState(PaxosState state) {
-        ListenableFuture<Boolean> setFuture = storage.set(PAXOS_STATE, new VersionedValue(messageCodec.encode(state), clock.now()));
-        return setFuture;
     }
 
     private void handlePrepareResponse(Message message) {

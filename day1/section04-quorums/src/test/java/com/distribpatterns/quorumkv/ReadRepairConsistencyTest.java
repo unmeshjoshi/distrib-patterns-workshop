@@ -37,8 +37,8 @@ public class ReadRepairConsistencyTest {
     /**
      * Factory for creating replicas with read repair enabled (synchronous).
      */
-    private static final ProcessFactory SYNC_READ_REPAIR_FACTORY = (peerIds, storage, processParams) ->
-            new QuorumKVReplica(peerIds, storage, processParams, true, false);
+    private static final ProcessFactory SYNC_READ_REPAIR_FACTORY = (peerIds, processParams) ->
+            new QuorumKVReplica(peerIds, processParams, true, false);
 
     @Test
     @DisplayName("Read Repair with Sync: Demonstrates history tracking and consistency checking")

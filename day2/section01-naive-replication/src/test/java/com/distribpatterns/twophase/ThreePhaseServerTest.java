@@ -33,7 +33,7 @@ class ThreePhaseServerTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(ThreePhaseServer::new)
+                .build((peerIds, processParams) -> new ThreePhaseServer(peerIds, processParams))
                 .start()) {
 
             var client = cluster.newClientConnectedTo(ALICE, ATHENS, ThreePhaseClient::new);
@@ -65,7 +65,7 @@ class ThreePhaseServerTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(ThreePhaseServer::new)
+                .build((peerIds, processParams) -> new ThreePhaseServer(peerIds, processParams))
                 .start()) {
 
             var client = cluster.newClientConnectedTo(ALICE, ATHENS, ThreePhaseClient::new);
@@ -116,7 +116,7 @@ class ThreePhaseServerTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .build(ThreePhaseServer::new)
+                .build((peerIds, processParams) -> new ThreePhaseServer(peerIds, processParams))
                 .start()) {
 
             // Step 1: Alice (Client-1) sends increment operation to Athens (Coordinator-1)
