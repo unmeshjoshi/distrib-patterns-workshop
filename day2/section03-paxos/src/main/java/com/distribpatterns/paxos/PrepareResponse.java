@@ -13,7 +13,7 @@ package com.distribpatterns.paxos;
  */
 public record PrepareResponse(
     boolean promised,
-    Integer acceptedGeneration,
+    Long acceptedGeneration,
     Operation acceptedValue
 ) {
 }

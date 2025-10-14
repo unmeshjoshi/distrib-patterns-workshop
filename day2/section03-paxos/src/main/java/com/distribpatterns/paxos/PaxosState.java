@@ -16,8 +16,8 @@ import java.util.Optional;
  * - Once a value is committed, it cannot change
  */
 public record PaxosState(
-    int promisedGeneration,               // Highest generation we've promised not to accept lower generations
-    Optional<Integer> acceptedGeneration, // Generation of the value we've accepted (but not committed)
+    long promisedGeneration,               // Highest generation we've promised not to accept lower generations
+    Optional<Long> acceptedGeneration, // Generation of the value we've accepted (but not committed)
     Optional<Operation> acceptedValue,    // The value we've accepted (but not committed)
     Optional<Operation> committedValue    // The value we've committed and executed
 ) {
@@ -49,7 +49,7 @@ public record PaxosState(
      * Can we accept a proposal with this generation?
      * True if the generation equals or is higher than our promise.
      */
-    public boolean canAccept(int generation) {
+    public boolean canAccept(long generation) {
         return generation == promisedGeneration || generation > promisedGeneration;
     }
     
@@ -57,7 +57,7 @@ public record PaxosState(
      * Accept a proposed value with this generation.
      * Returns new state with updated acceptedGeneration and acceptedValue.
      */
-    public PaxosState accept(int generation, Operation value) {
+    public PaxosState accept(long generation, Operation value) {
         return new PaxosState(generation, Optional.of(generation), Optional.of(value), committedValue);
     }
     
@@ -65,7 +65,7 @@ public record PaxosState(
      * Commit the value with this generation.
      * Returns new state with updated committedValue.
      */
-    public PaxosState commit(int generation, Operation value) {
+    public PaxosState commit(long generation, Operation value) {
         return new PaxosState(generation, Optional.of(generation), Optional.of(value), Optional.of(value));
     }
     
