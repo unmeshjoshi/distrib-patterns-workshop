@@ -1,2 +1,4 @@
-// No additional dependencies needed - inherits from root build.gradle
-
+dependencies {
+    // Project dependency on the WAL module
+    implementation project(':day1:section03-wal')
+}

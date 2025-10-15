@@ -1,13 +1,17 @@
 package com.distribpatterns.paxoslog;
 
+import com.distribpatterns.common.Config;
+import com.distribpatterns.wal.WriteAheadLog;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
+import com.tickloom.future.ListenableFuture;
 import com.tickloom.messaging.*;
 import com.tickloom.network.MessageCodec;
 import com.tickloom.storage.Storage;
 import com.tickloom.util.Clock;
 
+import java.io.File;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -23,7 +27,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class PaxosLogServer extends Replica {
     // Paxos log: one PaxosState per log index
     private final Map<Integer, PaxosState> paxosLog = new TreeMap<>();
-    
+
+    //
+
     // State machine: key-value store
     private final Map<String, String> kvStore = new HashMap<>();
     

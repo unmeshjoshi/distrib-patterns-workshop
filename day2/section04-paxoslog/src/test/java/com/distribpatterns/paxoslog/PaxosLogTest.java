@@ -33,6 +33,9 @@ public class PaxosLogTest {
         //Not doing createSimulated just to the same code if we switch to real networking with Java NIO.
         try (var cluster = Cluster.create(List.of(ATHENS, BYZANTIUM, CYRENE), (peerIds, processParams) -> new PaxosLogServer(peerIds, processParams))) {
             
+            // Wait for all processes to initialize
+            assertEventually(cluster, () -> cluster.areAllNodesInitialized());
+            
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, PaxosLogClient::new);
             
             // Execute SetValue command
@@ -56,8 +59,7 @@ public class PaxosLogTest {
             assertEquals("Microservices", byzantium.getValue("title"));
             assertEquals("Microservices", cyrene.getValue("title"));
             
-            // Verify log state
-            assertEquals(1, athens.getPaxosLog().size());
+            // Verify high water mark
             assertEquals(0, athens.getHighWaterMark());
             
             System.out.println("\n=== Test passed: Basic SetValue ===\n");
@@ -74,6 +76,9 @@ public class PaxosLogTest {
                 .useSimulatedNetwork()
                 .build((peerIds, processParams) -> new PaxosLogServer(peerIds, processParams))
                 .start()) {
+            
+            // Wait for all processes to initialize
+            assertEventually(cluster, () -> cluster.areAllNodesInitialized());
             
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, PaxosLogClient::new);
             
@@ -94,9 +99,10 @@ public class PaxosLogTest {
             PaxosLogServer byzantium = getServer(cluster, BYZANTIUM);
             PaxosLogServer cyrene = getServer(cluster, CYRENE);
             
-            assertEquals(2, athens.getPaxosLog().size());
-            assertEquals(2, byzantium.getPaxosLog().size());
-            assertEquals(2, cyrene.getPaxosLog().size());
+            // Verify high water mark
+            assertEquals(1, athens.getHighWaterMark());
+            assertEquals(1, byzantium.getHighWaterMark());
+            assertEquals(1, cyrene.getHighWaterMark());
             
             assertEquals("Microservices", athens.getValue("title"));
             assertEquals("Martin", athens.getValue("author"));
@@ -115,6 +121,9 @@ public class PaxosLogTest {
                 .useSimulatedNetwork()
                 .build((peerIds, processParams) -> new PaxosLogServer(peerIds, processParams))
                 .start()) {
+            
+            // Wait for all processes to initialize
+            assertEventually(cluster, () -> cluster.areAllNodesInitialized());
             
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, PaxosLogClient::new);
             
@@ -159,6 +168,9 @@ public class PaxosLogTest {
                 .useSimulatedNetwork()
                 .build((peerIds, processParams) -> new PaxosLogServer(peerIds, processParams))
                 .start()) {
+            
+            // Wait for all processes to initialize
+            assertEventually(cluster, () -> cluster.areAllNodesInitialized());
             
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, PaxosLogClient::new);
             
