@@ -72,7 +72,7 @@ public class ReadRepairScenariosTest {
             assertTrue(write2.getResult().success());
 
             // Verify CYRENE still has old value
-            VersionedValue valueCBefore = cluster.getStorageValue(CYRENE, key);
+            VersionedValue valueCBefore = cluster.getDecodedStoredValue(CYRENE, key, VersionedValue.class);
             assertArrayEquals(value, valueCBefore.value(), "CYRENE should have stale value");
 
             // Heal partition
@@ -85,7 +85,7 @@ public class ReadRepairScenariosTest {
 
             // Wait for read repair to complete
             assertEventually(cluster, () -> {
-                VersionedValue valueC = cluster.getStorageValue(CYRENE, key);
+                VersionedValue valueC = cluster.getDecodedStoredValue(CYRENE, key, VersionedValue.class);
                 return valueC != null && java.util.Arrays.equals(newValue, valueC.value());
             });
 
@@ -135,7 +135,7 @@ public class ReadRepairScenariosTest {
 
             // Async repair happens in background
             assertEventually(cluster, () -> {
-                VersionedValue valueC = cluster.getStorageValue(CYRENE, key);
+                VersionedValue valueC = cluster.getDecodedStoredValue(CYRENE, key, VersionedValue.class);
                 return valueC != null && java.util.Arrays.equals(value2, valueC.value());
             });
         }
@@ -161,7 +161,7 @@ public class ReadRepairScenariosTest {
             assertEventually(cluster, write1::isCompleted);
             assertTrue(write1.getResult().success());
 
-            long timestamp1 = cluster.getStorageValue(ATHENS, key).timestamp();
+            long timestamp1 = cluster.getDecodedStoredValue(ATHENS, key, VersionedValue.class).timestamp();
 
             // Partition and write value2 (will have higher timestamp)
             cluster.partitionNodes(
@@ -178,7 +178,7 @@ public class ReadRepairScenariosTest {
             assertEventually(cluster, write2::isCompleted);
             assertTrue(write2.getResult().success());
 
-            long timestamp2 = cluster.getStorageValue(ATHENS, key).timestamp();
+            long timestamp2 = cluster.getDecodedStoredValue(ATHENS, key, VersionedValue.class).timestamp();
             assertTrue(timestamp2 > timestamp1, "Second write should have higher timestamp");
 
             // Heal and perform read
@@ -193,7 +193,7 @@ public class ReadRepairScenariosTest {
 
             // Read repair should update all nodes to value2
             assertEventually(cluster, () -> {
-                VersionedValue valueC = cluster.getStorageValue(CYRENE, key);
+                VersionedValue valueC = cluster.getDecodedStoredValue(CYRENE, key, VersionedValue.class);
                 return valueC != null && java.util.Arrays.equals(value2, valueC.value());
             });
         }
@@ -257,15 +257,15 @@ public class ReadRepairScenariosTest {
 
             // Read repair should update ATHENS to value2
             assertEventually(cluster, () -> {
-                VersionedValue valueA = cluster.getStorageValue(ATHENS, key);
+                VersionedValue valueA = cluster.getDecodedStoredValue(ATHENS, key, VersionedValue.class);
                 return valueA != null && java.util.Arrays.equals(value2, valueA.value());
             });
 
             // All nodes should eventually have value2
             assertEventually(cluster, () -> {
-                VersionedValue valueA = cluster.getStorageValue(ATHENS, key);
-                VersionedValue valueB = cluster.getStorageValue(BYZANTIUM, key);
-                VersionedValue valueC = cluster.getStorageValue(CYRENE, key);
+                VersionedValue valueA = cluster.getDecodedStoredValue(ATHENS, key, VersionedValue.class);
+                VersionedValue valueB = cluster.getDecodedStoredValue(BYZANTIUM, key, VersionedValue.class);
+                VersionedValue valueC = cluster.getDecodedStoredValue(CYRENE, key, VersionedValue.class);
                 
                 return valueA != null && valueB != null && valueC != null &&
                        java.util.Arrays.equals(value2, valueA.value()) &&
@@ -317,8 +317,8 @@ public class ReadRepairScenariosTest {
 
             // Both reads should trigger repair
             assertEventually(cluster, () -> {
-                VersionedValue valueC1 = cluster.getStorageValue(CYRENE, key1);
-                VersionedValue valueC2 = cluster.getStorageValue(CYRENE, key2);
+                VersionedValue valueC1 = cluster.getDecodedStoredValue(CYRENE, key1, VersionedValue.class);
+                VersionedValue valueC2 = cluster.getDecodedStoredValue(CYRENE, key2, VersionedValue.class);
                 
                 return valueC1 != null && valueC2 != null &&
                        java.util.Arrays.equals(newValue1, valueC1.value()) &&

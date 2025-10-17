@@ -6,6 +6,7 @@ subprojects {
     apply plugin: 'java'
     
     repositories {
+        mavenLocal()
         mavenCentral()
         maven {
             url = uri("https://clojars.org/repo")
@@ -15,8 +16,8 @@ subprojects {
     // Common dependencies for all subprojects
     dependencies {
         // Tickloom library (includes Jackson core and databind)
-        implementation 'io.github.unmeshjoshi:tickloom:0.1.0-alpha.15'
-        testImplementation 'io.github.unmeshjoshi:tickloom-testkit:0.1.0-alpha.15'
+        implementation 'io.github.unmeshjoshi:tickloom:0.1.0-alpha.16'
+        testImplementation 'io.github.unmeshjoshi:tickloom-testkit:0.1.0-alpha.16'
 
         // Additional Jackson modules needed by the project (matching tickloom's Jackson version)
         implementation group: 'com.fasterxml.jackson.datatype', name: 'jackson-datatype-jdk8', version: '2.17.0'

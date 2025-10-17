@@ -7,6 +7,7 @@ import com.tickloom.ProcessId;
 import com.tickloom.future.ListenableFuture;
 import com.tickloom.history.History;
 import com.tickloom.history.Op;
+import com.tickloom.storage.VersionedValue;
 import com.tickloom.testkit.Cluster;
 import com.tickloom.testkit.NodeGroup;
 import org.junit.jupiter.api.DisplayName;
@@ -117,7 +118,7 @@ public class NetworkPartitionTest {
 
             // Step 4: different client performs local read on ATHENS (single-node read), sees stale v0
             history.invoke(ProcessId.of("client2"), Op.READ, null);
-            var vv = cluster.getStorageValue(ATHENS, key.getBytes());
+            var vv = cluster.getDecodedStoredValue(ATHENS, key.getBytes(), VersionedValue.class);
             assertNotNull(vv);
             assertArrayEquals(v0.getBytes(), vv.value());
             history.ok(ProcessId.of("client2"), Op.READ, new String(vv.value()));
@@ -210,7 +211,7 @@ public class NetworkPartitionTest {
             history.fail(ProcessId.of("minority_client"), Op.WRITE, minorityValue);
 
             // Step 4: skew majority clock behind minority; majority write now has lower timestamp
-            var athensTs = cluster.getStorageValue(ATHENS, key.getBytes()).timestamp();
+            var athensTs = cluster.getDecodedStoredValue(ATHENS, key.getBytes(), VersionedValue.class).timestamp();
             cluster.setTimeForProcess(CYRENE, athensTs - SKEW_TICKS);
 
             history.invoke(ProcessId.of("majority_client"), Op.WRITE, majorityValue);

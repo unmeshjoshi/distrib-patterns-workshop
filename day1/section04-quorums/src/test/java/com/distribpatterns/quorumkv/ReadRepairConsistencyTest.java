@@ -7,6 +7,7 @@ import com.tickloom.ProcessId;
 import com.tickloom.ProcessFactory;
 import com.tickloom.history.History;
 import com.tickloom.history.Op;
+import com.tickloom.storage.VersionedValue;
 import com.tickloom.testkit.Cluster;
 import com.tickloom.testkit.NodeGroup;
 import org.junit.jupiter.api.DisplayName;
@@ -92,7 +93,7 @@ public class ReadRepairConsistencyTest {
 
             // Step 6: Wait for sync read repair to complete
             assertEventually(cluster, () -> {
-                var valueC = cluster.getStorageValue(CYRENE, key.getBytes());
+                var valueC = cluster.getDecodedStoredValue(CYRENE, key.getBytes(), VersionedValue.class);
                 return valueC != null && java.util.Arrays.equals(v1.getBytes(), valueC.value());
             });
 

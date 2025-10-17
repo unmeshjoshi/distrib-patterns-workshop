@@ -51,9 +51,9 @@ public class QuorumBasicScenariosTest {
 
             // Verify all replicas eventually have the value
             assertEventually(cluster, () -> {
-                VersionedValue valueAthens = cluster.getStorageValue(ATHENS, key);
-                VersionedValue valueByzantium = cluster.getStorageValue(BYZANTIUM, key);
-                VersionedValue valueCyrene = cluster.getStorageValue(CYRENE, key);
+                VersionedValue valueAthens = cluster.getDecodedStoredValue(ATHENS, key, VersionedValue.class);
+                VersionedValue valueByzantium = cluster.getDecodedStoredValue(BYZANTIUM, key, VersionedValue.class);
+                VersionedValue valueCyrene = cluster.getDecodedStoredValue(CYRENE, key, VersionedValue.class);
                 
                 return valueAthens != null && valueByzantium != null && valueCyrene != null;
             });

@@ -3,6 +3,7 @@ package com.distribpatterns.quorumkv;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
+import com.tickloom.future.ListenableFuture;
 import com.tickloom.messaging.*;
 import com.tickloom.network.MessageCodec;
 import com.tickloom.storage.Storage;
@@ -82,11 +83,12 @@ public class QuorumKVReplica extends Replica {
         });
     }
 
-    private static VersionedValue getLatestValue(Map<ProcessId, InternalGetResponse> responses) {
+    private VersionedValue getLatestValue(Map<ProcessId, InternalGetResponse> responses) {
         return responses.values()
                 .stream()
                 .map(InternalGetResponse::value)
-                .filter(value -> value.value() != null)
+                .filter(value -> value != null)
+                .map(value -> messageCodec.decode(value, VersionedValue.class))
                 .max(Comparator.comparingLong(VersionedValue::timestamp)).get();
     }
 
@@ -105,7 +107,7 @@ public class QuorumKVReplica extends Replica {
 
     private void sendSuccessGetResponse(GetRequest req, String correlationId, ProcessId clientAddr,
                                         Map<ProcessId, InternalGetResponse> responses) {
-        var latestValue = getLatestValueFromResponses(responses);
+        var latestValue = getLatestValue(responses);
 
         logSuccessfulGetResponse(req, correlationId, latestValue);
 
@@ -200,24 +202,6 @@ public class QuorumKVReplica extends Replica {
                 ", correlationId: " + correlationId + ", error: " + error.getMessage());
     }
 
-    // Helper method to extract the latest value from quorum responses
-    private VersionedValue getLatestValueFromResponses(Map<ProcessId, InternalGetResponse> responses) {
-        VersionedValue latestValue = null;
-        long latestTimestamp = -1;
-
-        for (InternalGetResponse response : responses.values()) {
-            if (response.value() != null) {
-                long timestamp = response.value().timestamp();
-                if (timestamp > latestTimestamp) {
-                    latestTimestamp = timestamp;
-                    latestValue = response.value();
-                }
-            }
-        }
-
-        return latestValue;
-    }
-
     // Internal request handlers
 
     private void handleInternalGetRequest(Message message) {
@@ -231,7 +215,7 @@ public class QuorumKVReplica extends Replica {
         });
     }
 
-    private void sendInternalGetResponse(Message incomingMessage, VersionedValue value, Throwable error, InternalGetRequest getRequest) {
+    private void sendInternalGetResponse(Message incomingMessage, byte[] value, Throwable error, InternalGetRequest getRequest) {
 
         logInternalGetResponse(value, error, getRequest);
         //value will be null if not found or error
@@ -245,7 +229,7 @@ public class QuorumKVReplica extends Replica {
 
     }
 
-    private static void logInternalGetResponse(VersionedValue value, Throwable error, InternalGetRequest getRequest) {
+    private static void logInternalGetResponse(byte[] value, Throwable error, InternalGetRequest getRequest) {
         if (error == null) {
             String valueStr = value != null ? value + "found" : "not found";
             System.out.println("QuorumKVReplica: Internal GET completed - key: " + getRequest.key() +
@@ -261,14 +245,30 @@ public class QuorumKVReplica extends Replica {
         var setRequest = deserializePayload(message.payload(), InternalSetRequest.class);
         var value = new VersionedValue(setRequest.value(), setRequest.timestamp());
 
-        System.out.println("QuorumKVReplica: Processing internal SET request - keyLength: " + setRequest.key().length +
+        System.out.println("QuorumReplica: Processing internal SET request - keyLength: " + setRequest.key().length +
                 ", valueLength: " + setRequest.value().length + ", timestamp: " + setRequest.timestamp() +
                 ", from: " + message.source());
 
-        // Perform local storage operation
-        var future = storage.set(setRequest.key(), value);
-        future.handle((success, error)
-                -> sendInternalSetResponse(message, success, error, setRequest));
+        //First get the value and set only if it does not exist or its of lower timestamp.
+        ListenableFuture<byte[]> getFuture = storage.get(setRequest.key());
+        getFuture.handle((result, error) -> {
+            if (error != null) {
+                sendInternalSetResponse(message, false, error, setRequest);
+                return;
+            }
+            if (result != null) {
+                VersionedValue existingValue = messageCodec.decode(result, VersionedValue.class);
+                if (existingValue.timestamp() >= value.timestamp()) {
+                    //Already set with higher timestamp, so we return true, but dont overwrite the value.
+                    sendInternalSetResponse(message, true, null, setRequest);
+                    return;
+                }
+            }
+            // Perform local storage operation
+            var future = storage.set(setRequest.key(), messageCodec.encode(value));
+            future.handle((success, setError)
+                    -> sendInternalSetResponse(message, success, setError, setRequest));
+        });
     }
 
     private void sendInternalSetResponse(Message message, Boolean success, Throwable error, InternalSetRequest setRequest) {
