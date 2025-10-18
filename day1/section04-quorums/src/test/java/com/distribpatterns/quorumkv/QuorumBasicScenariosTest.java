@@ -1,7 +1,6 @@
 package com.distribpatterns.quorumkv;
 
 import com.tickloom.ProcessId;
-import com.tickloom.storage.VersionedValue;
 import com.tickloom.testkit.Cluster;
 import com.tickloom.testkit.NodeGroup;
 import org.junit.jupiter.api.DisplayName;
@@ -11,7 +10,8 @@ import java.io.IOException;
 import java.util.List;
 
 import static com.tickloom.testkit.ClusterAssertions.*;
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests for basic quorum scenarios without read repair.

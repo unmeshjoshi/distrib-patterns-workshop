@@ -3,10 +3,8 @@ package com.distribpatterns.naive;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
-import com.tickloom.messaging.*;
-import com.tickloom.network.MessageCodec;
-import com.tickloom.storage.Storage;
-import com.tickloom.util.Clock;
+import com.tickloom.messaging.Message;
+import com.tickloom.messaging.MessageType;
 
 import java.util.HashMap;
 import java.util.List;

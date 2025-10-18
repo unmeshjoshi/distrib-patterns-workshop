@@ -1,8 +1,8 @@
 package com.distribpatterns.wal;
 
-import org.junit.jupiter.api.Test;
 import com.distribpatterns.common.Config;
 import com.distribpatterns.common.TestUtils;
+import org.junit.jupiter.api.Test;
 
 import java.io.File;
 

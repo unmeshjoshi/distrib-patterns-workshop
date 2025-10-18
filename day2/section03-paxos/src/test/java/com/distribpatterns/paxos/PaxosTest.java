@@ -1,9 +1,7 @@
 package com.distribpatterns.paxos;
 
-import clojure.lang.Compiler;
 import com.tickloom.ProcessId;
 import com.tickloom.future.ListenableFuture;
-import com.tickloom.storage.VersionedValue;
 import com.tickloom.testkit.Cluster;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -11,7 +9,7 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.util.List;
 
-import static com.tickloom.testkit.ClusterAssertions.*;
+import static com.tickloom.testkit.ClusterAssertions.assertEventually;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**

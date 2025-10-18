@@ -13,7 +13,6 @@ import java.util.List;
 import static com.distribpatterns.naive.NaiveReplicationServerTest.getServerInstance;
 import static com.tickloom.testkit.ClusterAssertions.assertEventually;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
 
 /**
  * Tests for Three-Phase Commit with coordinator failure recovery.

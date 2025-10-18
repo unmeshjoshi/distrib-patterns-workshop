@@ -3,12 +3,15 @@ package com.distribpatterns.multipaxos;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
-import com.tickloom.messaging.*;
-import com.tickloom.network.MessageCodec;
-import com.tickloom.storage.Storage;
-import com.tickloom.util.Clock;
+import com.tickloom.messaging.AsyncQuorumCallback;
+import com.tickloom.messaging.Message;
+import com.tickloom.messaging.MessageType;
+import com.tickloom.messaging.RequestCallback;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 

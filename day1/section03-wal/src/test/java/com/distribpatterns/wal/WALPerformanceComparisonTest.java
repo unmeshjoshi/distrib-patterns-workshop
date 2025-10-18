@@ -1,10 +1,10 @@
 package com.distribpatterns.wal;
 
+import com.distribpatterns.common.Config;
+import com.distribpatterns.common.TestUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import com.distribpatterns.common.Config;
-import com.distribpatterns.common.TestUtils;
 
 import java.io.File;
 import java.io.IOException;

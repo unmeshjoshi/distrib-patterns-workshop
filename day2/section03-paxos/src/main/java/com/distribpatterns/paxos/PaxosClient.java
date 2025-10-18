@@ -4,9 +4,8 @@ import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.algorithms.replication.ClusterClient;
 import com.tickloom.future.ListenableFuture;
-import com.tickloom.messaging.*;
-import com.tickloom.network.MessageCodec;
-import com.tickloom.util.Clock;
+import com.tickloom.messaging.Message;
+import com.tickloom.messaging.MessageType;
 
 import java.util.List;
 import java.util.Map;

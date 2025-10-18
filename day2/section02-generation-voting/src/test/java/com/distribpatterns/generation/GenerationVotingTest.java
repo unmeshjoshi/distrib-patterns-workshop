@@ -9,8 +9,8 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static com.tickloom.testkit.ClusterAssertions.assertEventually;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * Tests for Generation Voting algorithm.

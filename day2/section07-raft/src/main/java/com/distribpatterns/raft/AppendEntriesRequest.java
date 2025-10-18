@@ -1,6 +1,7 @@
 package com.distribpatterns.raft;
 
 import com.tickloom.ProcessId;
+
 import java.util.List;
 
 /**

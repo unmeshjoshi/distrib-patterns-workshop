@@ -2,7 +2,6 @@ package com.distribpatterns.quorumkv;
 
 import com.tickloom.ProcessId;
 import com.tickloom.future.ListenableFuture;
-import com.tickloom.storage.VersionedValue;
 import com.tickloom.testkit.ClusterTest;
 import com.tickloom.testkit.NodeGroup;
 import org.junit.jupiter.api.DisplayName;

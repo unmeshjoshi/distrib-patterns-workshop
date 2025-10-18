@@ -3,11 +3,10 @@ package com.distribpatterns.quorumkv;
 import com.tickloom.ConsistencyChecker;
 import com.tickloom.ConsistencyChecker.ConsistencyProperty;
 import com.tickloom.ConsistencyChecker.DataModel;
-import com.tickloom.ProcessId;
 import com.tickloom.ProcessFactory;
+import com.tickloom.ProcessId;
 import com.tickloom.history.History;
 import com.tickloom.history.Op;
-import com.tickloom.storage.VersionedValue;
 import com.tickloom.testkit.Cluster;
 import com.tickloom.testkit.NodeGroup;
 import org.junit.jupiter.api.DisplayName;
@@ -16,8 +15,9 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.util.List;
 
-import static com.tickloom.testkit.ClusterAssertions.*;
-import static org.junit.jupiter.api.Assertions.*;
+import static com.tickloom.testkit.ClusterAssertions.assertEventually;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Demonstrates how to use Jepsen history tracking to verify consistency properties.

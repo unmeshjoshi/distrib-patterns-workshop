@@ -3,7 +3,6 @@ package com.distribpatterns.raft;
 import com.tickloom.ProcessId;
 import com.tickloom.future.ListenableFuture;
 import com.tickloom.testkit.Cluster;
-import com.tickloom.testkit.ClusterTest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

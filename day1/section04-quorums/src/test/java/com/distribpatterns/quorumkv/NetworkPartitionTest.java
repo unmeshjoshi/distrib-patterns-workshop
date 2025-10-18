@@ -7,7 +7,6 @@ import com.tickloom.ProcessId;
 import com.tickloom.future.ListenableFuture;
 import com.tickloom.history.History;
 import com.tickloom.history.Op;
-import com.tickloom.storage.VersionedValue;
 import com.tickloom.testkit.Cluster;
 import com.tickloom.testkit.NodeGroup;
 import org.junit.jupiter.api.DisplayName;
