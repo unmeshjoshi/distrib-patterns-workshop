@@ -130,6 +130,7 @@ public class GenerationVotingTest {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
+                .useRocksDBStorage()
                 .build((peerIds, processParams) -> new GenerationVotingServer(peerIds, processParams))
                 .start()) {
 
