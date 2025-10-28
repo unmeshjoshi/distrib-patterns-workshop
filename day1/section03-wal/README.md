@@ -51,43 +51,13 @@ ON CRASH:               Replay the log to reconstruct state
 | Sequential writes are fast | Need durability | WAL uses sequential writes |
 | Measured IOPS and latency | Recovery after crash | WAL enables recovery |
 
-**Key Insight**: The disk I/O measurements from Section 1 explain why WAL uses **sequential writes** - they're much faster than random writes!
-
----
-
-## Project Structure
-
-```
-section03-wal/
-├── src/
-│   ├── main/java/replicate/
-│   │   ├── common/
-│   │   │   ├── Config.java           # WAL configuration
-│   │   │   └── JsonSerDes.java       # JSON serialization
-│   │   └── wal/
-│   │       ├── WriteAheadLog.java    # Main WAL implementation
-│   │       ├── WALSegment.java       # Individual log file
-│   │       ├── WALEntry.java         # Single log entry
-│   │       ├── Command.java          # Base command class
-│   │       ├── SetValueCommand.java  # Key-value set operation
-│   │       ├── DurableKVStore.java   # WAL-backed key-value store
-│   │       ├── SnapShot.java         # State snapshot
-│   │       ├── LogCleaner.java       # Log compaction
-│   │       └── ...
-│   └── test/java/replicate/
-│       ├── common/
-│       │   └── DiskWritePerformanceTest.java  # Measure WAL performance
-│       └── wal/
-│           └── DurableKVStoreTest.java        # Test WAL recovery
-```
-
 ---
 
 ## Build and Run
 
 ### Prerequisites
 
-- Java 11 or later
+- Java 21 or later
 - The project includes Gradle wrapper (no need to install Gradle)
 
 ### Build the Project
@@ -349,68 +319,6 @@ Multiple servers with WAL + Replication:
   └── System survives both crashes AND server failures!
 ```
 
-**Next**: Section 4 will show how to replicate the WAL across multiple servers for fault tolerance!
-
----
-
-## Exercises
-
-### Exercise 1: Understand WAL Recovery
-
-1. Run `DurableKVStoreTest`
-2. Add print statements in `DurableKVStore.applyLog()` to see recovery
-3. Observe how state is rebuilt from the log
-
-### Exercise 2: Measure Performance
-
-1. Run `DiskWritePerformanceTest`
-2. Compare throughput with Section 1 iostat measurements
-3. Calculate: How many log entries per second?
-
-### Exercise 3: Experiment with Failures
-
-Modify `DurableKVStoreTest`:
-1. Write 1000 entries
-2. Close the store (crash simulation)
-3. Delete random log segments (simulate disk corruption)
-4. Try to recover
-5. What happens? How much data is lost?
-
-### Exercise 4: Log Compaction
-
-1. Generate a large log (10,000 entries)
-2. Take a snapshot at entry 5,000
-3. Use `LogIndexBasedLogCleaner` to compact
-4. Verify old segments are removed
-5. Verify recovery still works
-
----
-
-## Key Takeaways
-
-### Why WAL is Fundamental:
-
-1. **Durability**: Writes survive crashes
-2. **Performance**: Sequential writes are fast
-3. **Recovery**: Replay log to rebuild state
-4. **Foundation**: Building block for replication
-
-### The Trade-offs:
-
-| Benefit | Cost |
-|---------|------|
-| Durability (data survives crashes) | Extra disk I/O (write to log + apply to memory) |
-| Fast sequential writes | Log grows forever (needs compaction) |
-| Simple recovery (just replay) | Recovery time grows with log size (needs snapshots) |
-
-### Design Decisions:
-
-- **Log segment size**: Larger = fewer files, smaller = easier compaction
-- **Sync frequency**: fsync every write = slow but durable, batch = fast but risky
-- **Snapshot frequency**: More often = faster recovery, less often = less I/O overhead
-
----
-
 ## Further Reading
 
 **Papers**:
@@ -418,6 +326,7 @@ Modify `DurableKVStoreTest`:
 - [ARIES: A Transaction Recovery Method (1992)](https://cs.stanford.edu/people/chrismre/cs345/rl/aries.pdf)
 
 **Books**:
+- Patterns Of Distributed Systems (Chapter 3: Write-Ahead Log)
 - Designing Data-Intensive Applications (Chapter 3: Storage and Retrieval)
 - Database Internals (Chapter 6: Write-Ahead Log)
 
@@ -427,5 +336,3 @@ Modify `DurableKVStoreTest`:
 - [LevelDB/RocksDB WAL](https://github.com/facebook/rocksdb/wiki/Write-Ahead-Log-%28WAL%29)
 
 ---
-
-**Remember**: Almost every distributed system uses some form of Write-Ahead Log. Understanding WAL is key to understanding how systems achieve durability at scale!

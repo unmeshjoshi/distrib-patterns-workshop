@@ -44,17 +44,11 @@ RocksDB stores keys in lexicographical (byte-by-byte) order. To ensure proper nu
     - Example key structure: `[groupId][index]`
       ```java
       byte[] getEntryKey(int groupId, long index) {
-          byte[] key = new byte[12]; // 4 bytes for groupId + 8 bytes for index
-          // Big-endian groupId
-          key[0] = (byte)(groupId >>> 24);
-          key[1] = (byte)(groupId >>> 16);
-          key[2] = (byte)(groupId >>> 8);
-          key[3] = (byte) groupId;
-          // Big-endian index
-          for (int i = 0; i < 8; i++) {
-              key[4 + i] = (byte)(index >>> (56 - 8 * i));
-          }
-          return key;
+        ByteBuffer keyBuffer = ByteBuffer.allocate(Integer.length + Long.BYTES)
+                .order(ByteOrder.BIG_ENDIAN);
+        keyBuffer.putInt(groupId);
+        keyBuffer.putLong(logEntryIndex);
+        return key.array();
       }
       ```
     - Enables efficient per-group operations:
