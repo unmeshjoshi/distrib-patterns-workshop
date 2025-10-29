@@ -18,19 +18,26 @@ public abstract class LogCleaner {
 
     //TODO:When multiple logs are created in multi-raft, a thread is created for each.Make this a shared threadpool instead
     private ScheduledExecutorService singleThreadedExecutor = Executors.newScheduledThreadPool(1);
+    private volatile boolean running = false;
 
     public void cleanLogs() {
+        if (!running) {
+            return;
+        }
         List<WALSegment> segmentsTobeDeleted = getSegmentsToBeDeleted();
         for (WALSegment walSegment : segmentsTobeDeleted) {
             wal.removeAndDeleteSegment(walSegment);
         }
-        scheduleLogCleaning();
+        if (running) {
+            scheduleLogCleaning();
+        }
     }
 
     abstract List<WALSegment> getSegmentsToBeDeleted();
 
     //<codeFragment name="logCleanerStartup">
     public void startup() {
+        running = true;
         scheduleLogCleaning();
     }
 
@@ -40,4 +47,16 @@ public abstract class LogCleaner {
         }, config.getCleanTaskIntervalMs(), TimeUnit.MILLISECONDS);
     }
     //</codeFragment>
+    
+    public void shutdown() {
+        running = false;
+        singleThreadedExecutor.shutdownNow();
+        try {
+            if (!singleThreadedExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                // Log warning if needed
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
 }

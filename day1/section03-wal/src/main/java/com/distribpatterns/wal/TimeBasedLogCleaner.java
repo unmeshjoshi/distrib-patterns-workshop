@@ -20,7 +20,11 @@ class TimeBasedLogCleaner extends LogCleaner {
     private List<WALSegment> getSegmentsPast(Long logMaxDurationMs) {
         long now = System.currentTimeMillis();
         List<WALSegment> markedForDeletion = new ArrayList<>();
-        List<WALSegment> sortedSavedSegments = wal.sortedSavedSegments;
+        // Create a copy to avoid ConcurrentModificationException
+        List<WALSegment> sortedSavedSegments;
+        synchronized (wal) {
+            sortedSavedSegments = new ArrayList<>(wal.sortedSavedSegments);
+        }
         for (WALSegment sortedSavedSegment : sortedSavedSegments) {
             if (timeElaspedSince(now, sortedSavedSegment.getLastLogEntryTimestamp()) > logMaxDurationMs) {
                 markedForDeletion.add(sortedSavedSegment);
