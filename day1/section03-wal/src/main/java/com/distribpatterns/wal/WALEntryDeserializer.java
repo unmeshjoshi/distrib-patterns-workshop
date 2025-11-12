@@ -22,51 +22,57 @@ class WALEntryDeserializer {
     }
 
     class Header {
-        long headerStartOffset;
+        final long headerStartOffset;
 
         public Header(long headerStartOffset) {
             this.headerStartOffset = headerStartOffset;
         }
 
         Integer readEntryType() {
-            return readInteger(headerStartOffset);
+            return readInteger(headerStartOffset + WALEntry.Layout.OFFSET_ENTRY_TYPE);
         }
+        
         Long readGeneration() {
-            return readLong(headerStartOffset + WriteAheadLog.sizeOfInt);
+            return readLong(headerStartOffset + WALEntry.Layout.OFFSET_GENERATION);
         }
 
         Long readEntryId() {
-            return readLong(headerStartOffset + WriteAheadLog.sizeOfLong + WriteAheadLog.sizeOfInt);
+            return readLong(headerStartOffset + WALEntry.Layout.OFFSET_ENTRY_INDEX);
         }
 
         Long readEntryTimestamp() {
-            return readLong(headerStartOffset + WriteAheadLog.sizeOfLong + WriteAheadLog.sizeOfLong + WriteAheadLog.sizeOfInt);
+            return readLong(headerStartOffset + WALEntry.Layout.OFFSET_TIMESTAMP);
         }
 
-        public Long readCrc() {
-            return readLong(WriteAheadLog.sizeOfInt + WriteAheadLog.sizeOfLong + WriteAheadLog.sizeOfLong + WriteAheadLog.sizeOfLong + WriteAheadLog.sizeOfLong);
+        Long readCrc() {
+            return readLong(headerStartOffset + WALEntry.Layout.OFFSET_CRC);
         }
 
-        public int getSize() {
-            return WriteAheadLog.sizeOfInt + WriteAheadLog.sizeOfLong + WriteAheadLog.sizeOfLong + WriteAheadLog.sizeOfLong + WriteAheadLog.sizeOfLong;
+        int getSize() {
+            return WALEntry.Layout.HEADER_SIZE;
         }
     }
 
     WALEntry readEntry(long startPosition) {
+        // Read length prefix
         Integer entrySize = readInteger(startPosition);
-        //read header
-        Header header = new Header(startPosition + WriteAheadLog.sizeOfInt);
+        
+        // Read header (starts after length prefix)
+        long headerStart = startPosition + WALEntry.Layout.SIZE_LENGTH_PREFIX;
+        Header header = new Header(headerStart);
         Integer entryType = header.readEntryType();
         Long generation = header.readGeneration();
         Long entryId = header.readEntryId();
         Long entryTimestamp = header.readEntryTimestamp();
         Long crc = header.readCrc();
+        
+        // Read data (starts after header)
         int headerSize = header.getSize();
-        var dataSize = (entrySize - headerSize);
-        //read data
+        int dataSize = entrySize - headerSize;
         ByteBuffer buffer = ByteBuffer.allocate(dataSize);
-        var position = readFromChannel(logChannel, buffer, startPosition + headerSize + WriteAheadLog.sizeOfInt);
-        var bytesRead = entrySize + WriteAheadLog.sizeOfInt;
+        long dataStart = headerStart + headerSize;
+        readFromChannel(logChannel, buffer, dataStart);
+        
         return new WALEntry(entryId, buffer.array(), EntryType.valueOf(entryType), generation);
     }
 

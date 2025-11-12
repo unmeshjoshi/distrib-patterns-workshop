@@ -73,32 +73,39 @@ public class WALEntry {
         return sizeOfData() + sizeOfHeader(); //size of all the fields
     }
 
-    static int sizeOfHeader() {
-        return sizeOfCrc() + sizeOfIndex() + sizeOfGeneration() + sizeOfEntryType() + sizeOfTimestamp();
+    /**
+     * Centralized layout definition for WAL entry format.
+     * Single source of truth for serialization and deserialization.
+     */
+    public static final class Layout {
+        // Size of the length prefix that precedes the header
+        public static final int SIZE_LENGTH_PREFIX = WriteAheadLog.sizeOfInt;
+        
+        // Field sizes
+        public static final int SIZE_ENTRY_TYPE = WriteAheadLog.sizeOfInt;
+        public static final int SIZE_GENERATION = WriteAheadLog.sizeOfLong;
+        public static final int SIZE_ENTRY_INDEX = WriteAheadLog.sizeOfLong;
+        public static final int SIZE_TIMESTAMP = WriteAheadLog.sizeOfLong;
+        public static final int SIZE_CRC = WriteAheadLog.sizeOfLong;
+        
+        // Offsets relative to start of header (i.e., after LENGTH_PREFIX)
+        public static final int OFFSET_ENTRY_TYPE = 0;
+        public static final int OFFSET_GENERATION = OFFSET_ENTRY_TYPE + SIZE_ENTRY_TYPE;
+        public static final int OFFSET_ENTRY_INDEX = OFFSET_GENERATION + SIZE_GENERATION;
+        public static final int OFFSET_TIMESTAMP = OFFSET_ENTRY_INDEX + SIZE_ENTRY_INDEX;
+        public static final int OFFSET_CRC = OFFSET_TIMESTAMP + SIZE_TIMESTAMP;
+        
+        // Total header size (excludes LENGTH_PREFIX, excludes data)
+        public static final int HEADER_SIZE = SIZE_ENTRY_TYPE + SIZE_GENERATION + 
+                                              SIZE_ENTRY_INDEX + SIZE_TIMESTAMP + SIZE_CRC;
     }
-
-    private static int sizeOfCrc() {
-        return WriteAheadLog.sizeOfLong;
+    
+    static int sizeOfHeader() {
+        return Layout.HEADER_SIZE;
     }
 
     private int sizeOfData() {
         return data.length;
-    }
-
-    private static int sizeOfEntryType() {
-        return WriteAheadLog.sizeOfInt;
-    }
-
-    private static int sizeOfTimestamp() {
-        return WriteAheadLog.sizeOfLong;
-    }
-
-    private static int sizeOfGeneration() {
-        return WriteAheadLog.sizeOfLong;
-    }
-
-    private static int sizeOfIndex() {
-        return WriteAheadLog.sizeOfLong;
     }
 
     public boolean matchEntry(WALEntry entry) {
