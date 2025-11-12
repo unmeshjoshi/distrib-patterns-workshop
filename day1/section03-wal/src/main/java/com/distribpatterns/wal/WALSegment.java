@@ -6,7 +6,9 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+import java.nio.file.FileStore;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -18,17 +20,27 @@ public class WALSegment {
     private static String logPrefix = "wal";
     final RandomAccessFile randomAccessFile;
     final FileChannel fileChannel;
+    private final Integer pageSize = 4096;
+    private final Long maxFlushDelayMs = 100L;
     Map<Long, Long> entryOffsets = new HashMap<Long, Long>();
     private File file;
+    public Long logicalBlockSize;
+    //enable adding padding bytes if log entry written to file is smaller than logical block size of the storage device.
+    boolean enablePadding = false;
 
     private WALSegment(Long startIndex, File file) {
         try {
             this.file = file;
             this.randomAccessFile = new RandomAccessFile(file, "rw");
             this.fileChannel = randomAccessFile.getChannel();
+
+            Path path = this.file.toPath();
+            FileStore fileStore = Files.getFileStore(path);
+            this.logicalBlockSize = fileStore.getBlockSize();
+
             //build index;
             buildOffsetIndex();
-        } catch (FileNotFoundException e) {
+        } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }
@@ -113,12 +125,40 @@ public class WALSegment {
     public synchronized Long writeEntry(WALEntry logEntry) {
         try {
             long entryOffset = fileChannel.size();
-            writeToChannel(logEntry.serialize());
+            ByteBuffer dataToWrite = logEntry.serialize();
+            //addPadding if data to write is not aligned on 4KB
+            if (enablePadding) {
+                dataToWrite = addPaddingBytesIfNeeded(dataToWrite);
+            }
+            writeToChannel(dataToWrite);
             entryOffsets.put(logEntry.getEntryIndex(), entryOffset);
             return logEntry.getEntryIndex();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    public ByteBuffer addPaddingBytesIfNeeded(ByteBuffer dataToWrite) {
+        int sizeOfBuffer = dataToWrite.limit();
+        long remainingBytes = sizeOfBuffer % logicalBlockSize;
+        if (remainingBytes == 0) {
+            return dataToWrite;
+        }
+
+        long paddingSize = (logicalBlockSize - remainingBytes);
+        if (paddingSize < WALEntry.sizeOfHeader()) {
+            //we need to add l additional bytes;
+            //l needs to enough to accomodate padding marker + 4 bytes length of padding block + padding bytes
+            //so if l < (padding marker (integer) + 4 bytes), we add one more logical block and add one
+            // more logical block size to the padding bytes.
+            paddingSize = paddingSize + (logicalBlockSize);
+        }
+        int paddingByteSize = Math.toIntExact(paddingSize - WALEntry.sizeOfHeader() - WriteAheadLog.sizeOfInt);
+        ByteBuffer paddedData = ByteBuffer.allocate((int) (sizeOfBuffer + paddingSize));
+        paddedData.put(dataToWrite.flip());
+        WALEntry entry = new WALEntry(-1l, new byte[Math.toIntExact(paddingByteSize)], EntryType.PADDING, 0);
+        paddedData.put(entry.serialize().flip());
+        return paddedData;
     }
 
     private Long writeToChannel(ByteBuffer buffer) {

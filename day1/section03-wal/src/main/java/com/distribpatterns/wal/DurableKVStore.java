@@ -55,6 +55,9 @@ public class DurableKVStore {
 
     private void applyEntries(List<WALEntry> walEntries) {
         for (WALEntry walEntry : walEntries) {
+            if (!walEntry.getEntryType().equals(EntryType.DATA)) {
+                continue; //skip all the non data entries.
+            }
             Command command = deserialize(walEntry);
             if (command instanceof SetValueCommand) {
                 SetValueCommand setValueCommand = (SetValueCommand) command;

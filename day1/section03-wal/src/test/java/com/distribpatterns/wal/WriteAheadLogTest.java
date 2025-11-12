@@ -356,4 +356,33 @@ public class WriteAheadLogTest {
             "Should read " + expectedCount + " entries from idx3 onwards");
         assertEquals(idx3, entriesFromIdx3.get(0).getEntryIndex());
     }
+
+    @Test
+    @DisplayName("readAt() should read from saved segments, not just open segment")
+    public void testReadWalWithPadding() {
+        walDir = TestUtils.tempDir("wal-readat-test");
+        // Use small max log size to force segment rolling
+        Config config = new Config(walDir.getAbsolutePath(), 100L);
+        wal = WriteAheadLog.openWAL(config);
+        wal.enablePadding();
+
+        // Write entries to force multiple segments
+        byte[] data = new byte[4095];
+        Long idx1 = wal.writeEntry(data);
+        // Force flush to ensure segments are written
+        wal.flush();
+
+        // This will fail if idx1 is in a saved segment
+        var entries = wal.readAll();
+        var entry1 = entries.get(0);
+        assertNotNull(entry1, "Should be able to read entry from saved segment");
+        assertEquals(idx1, entry1.getEntryIndex());
+        assertArrayEquals(data, entry1.getData());
+
+        var entry2 = entries.get(1);
+        assertEquals(EntryType.PADDING, entry2.getEntryType());
+        byte[] paddingBytes = entry2.getData();
+        assertEquals(4033, paddingBytes.length);
+
+    }
 }

@@ -212,7 +212,11 @@ public class WriteAheadLog {
     private void removeFromSavedSegments(int index) {
         sortedSavedSegments.remove(index);
     }
-    
+
+    public void enablePadding() {
+        openSegment.enablePadding = true;
+    }
+
     private static class SegmentPosition {
         final WALSegment segment;
         final int indexInList;

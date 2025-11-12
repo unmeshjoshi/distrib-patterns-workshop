@@ -4,7 +4,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 public enum EntryType {
-    DATA(0), METADATA(1), CRC(2);
+    DATA(0), METADATA(1), CRC(2), PADDING(3);
     private int value;
 
     private static Map<Integer, EntryType> map = new HashMap<>();

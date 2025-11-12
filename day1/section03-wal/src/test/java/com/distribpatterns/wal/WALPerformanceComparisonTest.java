@@ -198,8 +198,6 @@ public class WALPerformanceComparisonTest {
         log("   Solution: Pre-allocate large chunks (16MB)", "   Impact: Prevents fragmentation, predictable performance");
 
         log("\n" + "=".repeat(70), "WHY THESE OPTIMIZATIONS MATTER");
-        log("=".repeat(70), "\nFrom Section 1 (Little's Law), we measured:");
-        log("  - Disk service time: ~0.1ms per I/O", "  - fsync latency: ~1-10ms");
         log("\nBasic approach:", "  - 1000 writes × 10ms fsync = 10,000ms (10 seconds!)");
         log("\nOptimized approach:", "  - 1000 writes batched → 10 fsyncs × 10ms = 100ms");
         log("  - 100× faster!", "\n" + "=".repeat(70));

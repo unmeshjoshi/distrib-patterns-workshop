@@ -63,26 +63,30 @@ public class WALEntry {
     }
 
     private Integer serializedSize() {
-        return sizeOfData() + sizeOfIndex() + sizeOfGeneration() + sizeOfEntryType() + sizeOfTimestamp(); //size of all the fields
+        return sizeOfData() + sizeOfHeader(); //size of all the fields
+    }
+
+    static int sizeOfHeader() {
+        return sizeOfIndex() + sizeOfGeneration() + sizeOfEntryType() + sizeOfTimestamp();
     }
 
     private int sizeOfData() {
         return data.length;
     }
 
-    private int sizeOfEntryType() {
+    private static int sizeOfEntryType() {
         return WriteAheadLog.sizeOfInt;
     }
 
-    private int sizeOfTimestamp() {
+    private static int sizeOfTimestamp() {
         return WriteAheadLog.sizeOfLong;
     }
 
-    private int sizeOfGeneration() {
+    private static int sizeOfGeneration() {
         return WriteAheadLog.sizeOfLong;
     }
 
-    private int sizeOfIndex() {
+    private static int sizeOfIndex() {
         return WriteAheadLog.sizeOfLong;
     }
 

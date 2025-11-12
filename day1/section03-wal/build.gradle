@@ -1,5 +1,8 @@
 // WAL (Write-Ahead Log) subproject
 // Common dependencies and configuration are inherited from parent build.gradle
+plugins { id "application" }
+
+application { mainClass = "com.distribpatterns.common.AtomicPersistExample" }
 
 dependencies {
     // Add any WAL-specific dependencies here if needed
