@@ -2,8 +2,10 @@ package com.distribpatterns.wal;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
+import java.util.zip.CRC32;
 
 public class WALEntry {
+    private final CRC32 crc = new CRC32();
 //<codeFragment name="walEntry">
     private final Long entryIndex;
     private final byte[] data;
@@ -50,6 +52,11 @@ public class WALEntry {
         buffer.putLong(generation);
         buffer.putLong(entryIndex);
         buffer.putLong(timeStamp);
+
+        crc.update(data);
+        buffer.putLong(crc.getValue());
+
+
         buffer.put(data);
         return buffer;
     }
@@ -67,7 +74,11 @@ public class WALEntry {
     }
 
     static int sizeOfHeader() {
-        return sizeOfIndex() + sizeOfGeneration() + sizeOfEntryType() + sizeOfTimestamp();
+        return sizeOfCrc() + sizeOfIndex() + sizeOfGeneration() + sizeOfEntryType() + sizeOfTimestamp();
+    }
+
+    private static int sizeOfCrc() {
+        return WriteAheadLog.sizeOfLong;
     }
 
     private int sizeOfData() {

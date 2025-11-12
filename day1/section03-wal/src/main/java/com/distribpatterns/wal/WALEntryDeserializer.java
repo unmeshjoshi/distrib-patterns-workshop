@@ -43,8 +43,12 @@ class WALEntryDeserializer {
             return readLong(headerStartOffset + WriteAheadLog.sizeOfLong + WriteAheadLog.sizeOfLong + WriteAheadLog.sizeOfInt);
         }
 
+        public Long readCrc() {
+            return readLong(WriteAheadLog.sizeOfInt + WriteAheadLog.sizeOfLong + WriteAheadLog.sizeOfLong + WriteAheadLog.sizeOfLong + WriteAheadLog.sizeOfLong);
+        }
+
         public int getSize() {
-            return WriteAheadLog.sizeOfInt + WriteAheadLog.sizeOfLong + WriteAheadLog.sizeOfLong + WriteAheadLog.sizeOfLong;
+            return WriteAheadLog.sizeOfInt + WriteAheadLog.sizeOfLong + WriteAheadLog.sizeOfLong + WriteAheadLog.sizeOfLong + WriteAheadLog.sizeOfLong;
         }
     }
 
@@ -56,7 +60,7 @@ class WALEntryDeserializer {
         Long generation = header.readGeneration();
         Long entryId = header.readEntryId();
         Long entryTimestamp = header.readEntryTimestamp();
-
+        Long crc = header.readCrc();
         int headerSize = header.getSize();
         var dataSize = (entrySize - headerSize);
         //read data
