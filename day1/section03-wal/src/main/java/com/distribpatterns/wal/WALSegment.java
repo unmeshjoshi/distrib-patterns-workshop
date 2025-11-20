@@ -138,6 +138,16 @@ public class WALSegment {
         }
     }
 
+    /**
+     * https://issues.apache.org/jira/browse/BOOKKEEPER-716
+     * it would be better to pad journal writes to align sector size, which to avoid second syncing corrupt an already synced sector/page.
+     * "Sijie Guo added a comment - 07/Mar/14 18:45
+     * this is mostly for preventing corruption, not pref.
+     * for example, say sector size 512, first flush writes data from 0 to 415, which will cause syncing sector 0. second flush writes data from 415 to 600, which will cause syncing sector 0 & 1. if machines is crashed during second flush (if the filesystem is not COW filesystem or transactional), sector 0 might be corrupted, which we might lose data of first flush.
+     * this change will try to padding bytes for each flush to align with sector size. so in the above example, first flush will write 0 to 512, while second flush will write from 512. as we don't have exact ideas on device layout, this patch is trying the best to prevent corruption."
+     * @param dataToWrite
+     * @return
+     */
     public ByteBuffer addPaddingBytesIfNeeded(ByteBuffer dataToWrite) {
         int sizeOfBuffer = dataToWrite.limit();
         long remainingBytes = sizeOfBuffer % logicalBlockSize;

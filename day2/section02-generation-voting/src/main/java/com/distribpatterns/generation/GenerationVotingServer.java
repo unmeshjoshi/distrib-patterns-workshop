@@ -48,7 +48,6 @@ public class GenerationVotingServer extends Replica {
      *    - On restart, replay the WAL; the last HardState is authoritative.
      *    - Examples:
      *        • etcd (Raft WAL under member/wal)
-     *        • YugabyteDB / DocDB (Raft log is the WAL; RocksDB WAL disabled)
      *
      * B) RocksDB-backed storage (KV-as-log; rely on RocksDB’s own WAL)
      *    - Store generation under a fixed key (e.g., GEN_KEY) as big-endian 64-bit.
