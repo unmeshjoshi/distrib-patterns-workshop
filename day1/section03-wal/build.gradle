@@ -5,6 +5,6 @@ plugins { id "application" }
 application { mainClass = "com.distribpatterns.common.AtomicPersistExample" }
 
 dependencies {
-    // Add any WAL-specific dependencies here if needed
+    // Matches the RocksDB version transitively used by tickloom at runtime.
+    implementation 'org.rocksdb:rocksdbjni:9.7.3'
 }
-

@@ -16,8 +16,8 @@ subprojects {
     // Common dependencies for all subprojects
     dependencies {
         // Tickloom library (includes Jackson core and databind)
-        implementation 'io.github.unmeshjoshi:tickloom:0.1.0-alpha.17'
-        testImplementation 'io.github.unmeshjoshi:tickloom-testkit:0.1.0-alpha.17'
+        implementation 'io.github.unmeshjoshi:tickloom:0.1.0-alpha.19'
+        testImplementation 'io.github.unmeshjoshi:tickloom-testkit:0.1.0-alpha.19'
 
         // Additional Jackson modules needed by the project (matching tickloom's Jackson version)
         implementation group: 'com.fasterxml.jackson.datatype', name: 'jackson-datatype-jdk8', version: '2.17.0'
@@ -54,8 +54,8 @@ subprojects {
     
     // Java version
     java {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
     }
 }
 

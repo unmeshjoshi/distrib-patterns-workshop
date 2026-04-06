@@ -1,17 +1,31 @@
-# Section 06: Multi-Paxos with Heartbeats (Demonstration)
+# Section 06: Multi-Paxos with Heartbeats
 
 ## Overview
-This section demonstrates the heartbeat protocol concepts for Multi-Paxos.
+This section extends the Multi-Paxos implementation with heartbeat-based leader liveness checks and step-down behavior.
 
-**Status**: Code-only demonstration (no automated tests). This shows the message flow for:
+It covers:
 - Heartbeat requests/responses
 - Leader step-down on heartbeat rejection
 - Random election timeout for preventing split votes
+- Recovery and catch-up scenarios exercised by tests
 
 ## Key Implementation Files
 - `MultiPaxosWithHeartbeatsServer.java` - Enhanced server with heartbeat handlers
 - `HeartbeatRequest.java` / `HeartbeatResponse.java` - Heartbeat messages
 - Public methods: `sendHeartbeats()`, `checkLeader()`, role transitions
+
+## Running Tests
+
+```bash
+./gradlew :day2:section06-multipaxos-heartbeats:test
+```
+
+## Tests
+
+- **LeaderElectionTest** - Leader election and timeout behavior
+- **LogConsistencyAndSafetyTest** - Log agreement and safety invariants
+- **RecoveryAndCatchUpScenariosTest** - Node recovery and follower catch-up
+- **MultiPaxosWithHeartbeatsTest** - End-to-end replicated log behavior
 
 ## Heartbeat Protocol (Conceptual)
 ```
@@ -27,14 +41,9 @@ If follower timeout expires:
   - Becomes candidate
 ```
 
-## Production Implementation Note
-A full production implementation requires:
-1. **Timer Integration**: Scheduled heartbeat sending and timeout checking
-2. **Automatic Election Trigger**: Follower auto-starts election on timeout
-3. **Heartbeat Scheduler/Checker**: Background tasks for periodic heartbeat operations
+## Notes
 
-These features are present in Raft implementations and the reference workshop code but require
-deeper integration with a timer/scheduler system than what's available in the simplified tickloom framework.
+This module demonstrates heartbeat-driven failure detection inside the simplified workshop framework. Raft in the next section builds on the same liveness idea, but adds stricter election and commit rules.
 
 ## Comparison: Section 05 vs Section 06
 | Feature | Section 05 | Section 06 |
@@ -43,4 +52,3 @@ deeper integration with a timer/scheduler system than what's available in the si
 | Leader Step-Down | ❌ | ✅ (On rejection) |
 | Random Election Timeout | ❌ | ✅ (Prevents split votes) |
 | Timer-Based Triggers | Manual | ⚠️ (Demonstrated, not automated) |
-

@@ -1,8 +1,10 @@
 package com.distribpatterns.paxoslog;
 
+import com.distribpatterns.wal.LogStore;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
+import com.tickloom.future.ListenableFuture;
 import com.tickloom.messaging.AsyncQuorumCallback;
 import com.tickloom.messaging.Message;
 import com.tickloom.messaging.MessageType;
@@ -21,10 +23,13 @@ import java.util.concurrent.atomic.AtomicInteger;
  * - State machine: applies commands (SetValue, CompareAndSwap) to KV store
  */
 public class PaxosLogServer extends Replica {
-    // Paxos log: one PaxosState per log index
-    private final Map<Integer, PaxosState> paxosLog = new TreeMap<>();
-
-    //
+    // LogStore for persistent storage of Paxos log entries
+    private static final String PAXOS_LOG_ID = "paxos";
+    private LogStore logStore;
+    
+    // In-memory cache: one PaxosState per log index (for fast access)
+    // This is rebuilt from LogStore on startup
+    private final Map<Integer, PaxosState> paxosLogCache = new TreeMap<>();
 
     // State machine: key-value store
     private final Map<String, String> kvStore = new HashMap<>();
@@ -41,10 +46,116 @@ public class PaxosLogServer extends Replica {
     // No-op operation for reads
     private static final NoOpOperation NO_OP = new NoOpOperation();
     
+    // Initialization flag
+    private boolean initialized = false;
+    
     public PaxosLogServer(List<ProcessId> allNodes, ProcessParams processParams) {
         super(allNodes, processParams);
         // Simple server ID: hash of process ID
         this.serverId = id.toString().hashCode();
+        // LogStore will be initialized in onInit() after storage is available
+    }
+    
+    @Override
+    protected ListenableFuture<?> onInit() {
+        // Initialize LogStore now that storage is available
+        if (logStore == null) {
+            logStore = new LogStore(List.of(PAXOS_LOG_ID), storage);
+        }
+        
+        // LogStore initialization is async - it queries storage for last indices
+        // We'll attempt to load entries, but if LogStore isn't ready yet, 
+        // we'll load them lazily when first accessed
+        ListenableFuture<Void> initFuture = new ListenableFuture<>();
+        
+        // Try to load entries if LogStore is already initialized
+        // Otherwise, entries will be loaded on-demand
+        if (logStore.isInitialised()) {
+            loadLogEntriesFromStorage(initFuture);
+        } else {
+            // LogStore is still initializing - mark as initialized anyway
+            // Entries will be loaded on first access
+            initialized = true;
+            initFuture.complete(null);
+        }
+        
+        return initFuture;
+    }
+    
+    private void loadLogEntriesFromStorage(ListenableFuture<Void> initFuture) {
+        if (logStore == null) {
+            initialized = true;
+            if (initFuture != null) initFuture.complete(null);
+            return;
+        }
+        
+        // Find the last log index
+        ListenableFuture<byte[]> lastKeyFuture = storage.lowerKey(
+            logStore.createLogKey(PAXOS_LOG_ID, Long.MAX_VALUE));
+        
+        lastKeyFuture.andThen((lastKey, error) -> {
+            if (error != null) {
+                System.err.println(id + ": Error finding last log index: " + error.getMessage());
+                initialized = true;
+                if (initFuture != null) initFuture.complete(null);
+                return;
+            }
+            
+            if (lastKey == null) {
+                // No entries in log yet
+                System.out.println(id + ": No existing log entries found");
+                initialized = true;
+                if (initFuture != null) initFuture.complete(null);
+                return;
+            }
+            
+            long lastIndex = logStore.getIndex(lastKey);
+            System.out.println(id + ": Loading log entries from storage, last index: " + lastIndex);
+            
+            // Load all entries from index 0 to lastIndex
+            byte[] startKey = logStore.createLogKey(PAXOS_LOG_ID, 0L);
+            byte[] endKey = logStore.createLogKey(PAXOS_LOG_ID, lastIndex + 1L);
+            
+            ListenableFuture<Map<byte[], byte[]>> rangeFuture = storage.readRange(startKey, endKey);
+            rangeFuture.andThen((entries, rangeError) -> {
+                if (rangeError != null) {
+                    System.err.println(id + ": Error reading log entries: " + rangeError.getMessage());
+                    initialized = true;
+                    if (initFuture != null) initFuture.complete(null);
+                    return;
+                }
+                
+                // Deserialize and cache all entries
+                for (Map.Entry<byte[], byte[]> entry : entries.entrySet()) {
+                    long index = logStore.getIndex(entry.getKey());
+                    PaxosState state = deserializePaxosState(entry.getValue());
+                    paxosLogCache.put((int) index, state);
+                    
+                    // Update high water mark if entry is committed
+                    if (state.committedValue().isPresent()) {
+                        highWaterMark = Math.max(highWaterMark, (int) index);
+                    }
+                }
+                
+                System.out.println(id + ": Loaded " + entries.size() + " log entries, highWaterMark: " + highWaterMark);
+                
+                // Replay committed entries to rebuild state machine
+                replayCommittedEntries();
+                
+                initialized = true;
+                if (initFuture != null) initFuture.complete(null);
+            });
+        });
+    }
+    
+    private void replayCommittedEntries() {
+        // Execute all committed entries in order
+        for (int index = 0; index <= highWaterMark; index++) {
+            PaxosState state = paxosLogCache.get(index);
+            if (state != null && state.committedValue().isPresent()) {
+                executeLogEntry(index, state.committedValue().get());
+            }
+        }
     }
     
     @Override
@@ -186,7 +297,7 @@ public class PaxosLogServer extends Replica {
         if (paxosState.canPromise(generation)) {
             // Promise this generation
             var newState = paxosState.promise(generation);
-            paxosLog.put(logIndex, newState);
+            persistPaxosState(logIndex, newState);
             
             PrepareResponse response = new PrepareResponse(
                 true,
@@ -273,7 +384,7 @@ public class PaxosLogServer extends Replica {
         if (paxosState.canAccept(generation)) {
             // Accept the proposal
             var newState = paxosState.accept(generation, value);
-            paxosLog.put(logIndex, newState);
+            persistPaxosState(logIndex, newState);
             
             System.out.println(id + ": ACCEPTED proposal for index " + logIndex);
             send(createMessage(message.source(), message.correlationId(), 
@@ -357,7 +468,7 @@ public class PaxosLogServer extends Replica {
         if (paxosState.canAccept(generation)) {
             // Commit the value
             var newState = paxosState.commit(generation, value);
-            paxosLog.put(logIndex, newState);
+            persistPaxosState(logIndex, newState);
             
             System.out.println(id + ": COMMITTED index " + logIndex);
             
@@ -386,7 +497,7 @@ public class PaxosLogServer extends Replica {
     private void tryExecuteLogEntries() {
         // Execute all consecutive committed entries starting from highWaterMark + 1
         for (int index = highWaterMark + 1; ; index++) {
-            PaxosState state = paxosLog.get(index);
+            PaxosState state = paxosLogCache.get(index);
             if (state == null || state.committedValue().isEmpty()) {
                 // Gap found or no more entries
                 break;
@@ -439,13 +550,71 @@ public class PaxosLogServer extends Replica {
     // ========== UTILITY METHODS ==========
     
     private PaxosState getOrCreatePaxosState(int logIndex) {
-        return paxosLog.computeIfAbsent(logIndex, k -> new PaxosState());
+        // Check cache first
+        PaxosState cached = paxosLogCache.get(logIndex);
+        if (cached != null) {
+            return cached;
+        }
+        
+        // Try to load from storage if not in cache
+        if (initialized && logStore != null) {
+            loadPaxosStateFromStorage(logIndex);
+        }
+        
+        // Return new state if not found
+        return new PaxosState();
+    }
+    
+    private void loadPaxosStateFromStorage(int logIndex) {
+        if (logStore == null || !initialized) {
+            return;
+        }
+        byte[] key = logStore.createLogKey(PAXOS_LOG_ID, logIndex);
+        ListenableFuture<byte[]> future = storage.get(key);
+        future.andThen((data, error) -> {
+            if (error == null && data != null) {
+                PaxosState state = deserializePaxosState(data);
+                paxosLogCache.put(logIndex, state);
+            }
+        });
+    }
+    
+    private void persistPaxosState(int logIndex, PaxosState state) {
+        // Update cache
+        paxosLogCache.put(logIndex, state);
+        
+        // Persist to storage using the log key (not append, since we update at specific index)
+        if (!initialized || logStore == null) {
+            // Don't persist until initialized
+            return;
+        }
+        
+        byte[] stateBytes = serializePaxosState(state);
+        byte[] logKey = logStore.createLogKey(PAXOS_LOG_ID, logIndex);
+        ListenableFuture<Boolean> persistFuture = storage.put(logKey, stateBytes, 
+            com.tickloom.storage.Storage.WriteOptions.SYNC);
+        persistFuture.andThen((success, error) -> {
+            if (error != null || !success) {
+                System.err.println(id + ": Failed to persist PaxosState for index " + logIndex + 
+                    (error != null ? ": " + error.getMessage() : ""));
+            }
+        });
+    }
+    
+    private byte[] serializePaxosState(PaxosState state) {
+        // Use messageCodec to serialize PaxosState
+        return messageCodec.encode(state);
+    }
+    
+    private PaxosState deserializePaxosState(byte[] data) {
+        // Use messageCodec to deserialize PaxosState
+        return messageCodec.decode(data, PaxosState.class);
     }
     
     // ========== PUBLIC ACCESSORS FOR TESTING ==========
     
     public Map<Integer, PaxosState> getPaxosLog() {
-        return paxosLog;
+        return paxosLogCache;
     }
     
     public String getValue(String key) {

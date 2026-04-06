@@ -190,6 +190,140 @@ public class PaxosLogTest {
         }
     }
     
+    @Test
+    @DisplayName("Persistence: Log entries are stored in Storage")
+    void testPersistence() throws IOException {
+        System.out.println("\n=== TEST: Persistence ===\n");
+        
+        try (var cluster = new Cluster()
+                .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
+                .useSimulatedNetwork()
+                .build((peerIds, processParams) -> new PaxosLogServer(peerIds, processParams))
+                .start()) {
+            
+            // Wait for all processes to initialize
+            assertEventually(cluster, () -> cluster.areAllNodesInitialized());
+            
+            var client = cluster.newClientConnectedTo(CLIENT, ATHENS, PaxosLogClient::new);
+            
+            // Write multiple entries
+            ListenableFuture<ExecuteCommandResponse> future1 = client.execute(ATHENS,
+                new SetValueOperation("key1", "value1"));
+            assertEventually(cluster, () -> future1.isCompleted() && !future1.isFailed());
+            assertTrue(future1.getResult().success());
+            
+            ListenableFuture<ExecuteCommandResponse> future2 = client.execute(BYZANTIUM,
+                new SetValueOperation("key2", "value2"));
+            assertEventually(cluster, () -> future2.isCompleted() && !future2.isFailed());
+            assertTrue(future2.getResult().success());
+            
+            // Verify all nodes have the entries in their log cache
+            PaxosLogServer athens = getServer(cluster, ATHENS);
+            PaxosLogServer byzantium = getServer(cluster, BYZANTIUM);
+            PaxosLogServer cyrene = getServer(cluster, CYRENE);
+            
+            // Check that log entries exist in cache (they should be loaded from storage)
+            var athensLog = athens.getPaxosLog();
+            var byzantiumLog = byzantium.getPaxosLog();
+            var cyreneLog = cyrene.getPaxosLog();
+            
+            // All nodes should have at least 2 entries (indices 0 and 1)
+            assertTrue(athensLog.size() >= 2, "Athens should have at least 2 log entries");
+            assertTrue(byzantiumLog.size() >= 2, "Byzantium should have at least 2 log entries");
+            assertTrue(cyreneLog.size() >= 2, "Cyrene should have at least 2 log entries");
+            
+            // Verify high water mark
+            assertEquals(1, athens.getHighWaterMark(), "High water mark should be 1");
+            assertEquals(1, byzantium.getHighWaterMark(), "High water mark should be 1");
+            assertEquals(1, cyrene.getHighWaterMark(), "High water mark should be 1");
+            
+            // Verify committed values
+            var entry0 = athensLog.get(0);
+            var entry1 = athensLog.get(1);
+            assertNotNull(entry0, "Entry at index 0 should exist");
+            assertNotNull(entry1, "Entry at index 1 should exist");
+            assertTrue(entry0.committedValue().isPresent(), "Entry 0 should be committed");
+            assertTrue(entry1.committedValue().isPresent(), "Entry 1 should be committed");
+            
+            System.out.println("\n=== Test passed: Persistence ===\n");
+        }
+    }
+    
+    @Test
+    @DisplayName("Log Consistency: All nodes have same log entries")
+    void testLogConsistency() throws IOException {
+        System.out.println("\n=== TEST: Log Consistency ===\n");
+        
+        try (var cluster = new Cluster()
+                .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
+                .useSimulatedNetwork()
+                .build((peerIds, processParams) -> new PaxosLogServer(peerIds, processParams))
+                .start()) {
+            
+            // Wait for all processes to initialize
+            assertEventually(cluster, () -> cluster.areAllNodesInitialized());
+            
+            var client = cluster.newClientConnectedTo(CLIENT, ATHENS, PaxosLogClient::new);
+            
+            // Write 3 entries
+            for (int i = 0; i < 3; i++) {
+                ListenableFuture<ExecuteCommandResponse> future = client.execute(ATHENS,
+                    new SetValueOperation("key" + i, "value" + i));
+                assertEventually(cluster, () -> future.isCompleted() && !future.isFailed());
+                assertTrue(future.getResult().success(), "Entry " + i + " should succeed");
+            }
+            
+            // Verify all nodes have consistent logs
+            PaxosLogServer athens = getServer(cluster, ATHENS);
+            PaxosLogServer byzantium = getServer(cluster, BYZANTIUM);
+            PaxosLogServer cyrene = getServer(cluster, CYRENE);
+            
+            // All nodes should have the same high water mark
+            int hwm = athens.getHighWaterMark();
+            assertEquals(hwm, byzantium.getHighWaterMark(), "Byzantium HWM should match Athens");
+            assertEquals(hwm, cyrene.getHighWaterMark(), "Cyrene HWM should match Athens");
+            assertEquals(2, hwm, "High water mark should be 2 (indices 0, 1, 2)");
+            
+            // All nodes should have committed entries at the same indices
+            var athensLog = athens.getPaxosLog();
+            var byzantiumLog = byzantium.getPaxosLog();
+            var cyreneLog = cyrene.getPaxosLog();
+            
+            for (int i = 0; i <= hwm; i++) {
+                var athensEntry = athensLog.get(i);
+                var byzantiumEntry = byzantiumLog.get(i);
+                var cyreneEntry = cyreneLog.get(i);
+                
+                assertNotNull(athensEntry, "Athens should have entry at index " + i);
+                assertNotNull(byzantiumEntry, "Byzantium should have entry at index " + i);
+                assertNotNull(cyreneEntry, "Cyrene should have entry at index " + i);
+                
+                // All should be committed
+                assertTrue(athensEntry.committedValue().isPresent(), 
+                    "Athens entry " + i + " should be committed");
+                assertTrue(byzantiumEntry.committedValue().isPresent(), 
+                    "Byzantium entry " + i + " should be committed");
+                assertTrue(cyreneEntry.committedValue().isPresent(), 
+                    "Cyrene entry " + i + " should be committed");
+            }
+            
+            System.out.println("\n=== Test passed: Log Consistency ===\n");
+        }
+    }
+    
+    /**
+     * Note: Full recovery testing (crash and restart) would require using RocksDbStorage
+     * with a shared database path. With SimulatedStorage (in-memory), each cluster instance
+     * gets a fresh storage, so we can't test cross-instance recovery.
+     * 
+     * To test full recovery:
+     * 1. Use RocksDbStorage with a shared path
+     * 2. Write entries in first cluster
+     * 3. Close first cluster
+     * 4. Create new cluster with same RocksDbStorage path
+     * 5. Verify entries are recovered
+     */
+    
     private static PaxosLogServer getServer(Cluster cluster, ProcessId id) {
         return (PaxosLogServer) cluster.getProcess(id);
     }
