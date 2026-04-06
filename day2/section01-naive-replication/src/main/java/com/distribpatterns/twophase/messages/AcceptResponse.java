@@ -1,4 +1,4 @@
-package com.distribpatterns.twophase;
+package com.distribpatterns.twophase.messages;
 
 /**
  * Phase 1 (Prepare/Accept) response.
@@ -6,4 +6,3 @@ package com.distribpatterns.twophase;
  */
 public record AcceptResponse(String transactionId, boolean accepted) {
 }
-

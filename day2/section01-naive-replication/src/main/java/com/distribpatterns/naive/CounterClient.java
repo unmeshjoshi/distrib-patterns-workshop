@@ -1,5 +1,10 @@
 package com.distribpatterns.naive;
 
+import com.distribpatterns.naive.messages.GetRequest;
+import com.distribpatterns.naive.messages.GetResponse;
+import com.distribpatterns.naive.messages.IncrementCounterRequest;
+import com.distribpatterns.naive.messages.IncrementCounterResponse;
+import com.distribpatterns.naive.messages.MessageTypes;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.algorithms.replication.ClusterClient;

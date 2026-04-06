@@ -1,4 +1,6 @@
-package com.distribpatterns.twophase;
+package com.distribpatterns.twophase.messages;
+
+import com.distribpatterns.twophase.Operation;
 
 /**
  * Phase 1 (Prepare/Accept) request.
@@ -6,4 +8,3 @@ package com.distribpatterns.twophase;
  */
 public record AcceptRequest(String transactionId, Operation operation) {
 }
-

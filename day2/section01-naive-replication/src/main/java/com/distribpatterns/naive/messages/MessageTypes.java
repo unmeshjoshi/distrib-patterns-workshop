@@ -1,4 +1,4 @@
-package com.distribpatterns.naive;
+package com.distribpatterns.naive.messages;
 
 import com.tickloom.messaging.MessageType;
 

@@ -1,5 +1,13 @@
 package com.distribpatterns.twophase;
 
+import com.distribpatterns.twophase.messages.AcceptRequest;
+import com.distribpatterns.twophase.messages.AcceptResponse;
+import com.distribpatterns.twophase.messages.CommitRequest;
+import com.distribpatterns.twophase.messages.ExecuteRequest;
+import com.distribpatterns.twophase.messages.ExecuteResponse;
+import com.distribpatterns.twophase.messages.QueryRequest;
+import com.distribpatterns.twophase.messages.QueryResponse;
+import com.distribpatterns.twophase.messages.TwoPhaseMessageTypes;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
@@ -360,4 +368,3 @@ public class ThreePhaseServer extends Replica {
         return counters.get(key);
     }
 }
-

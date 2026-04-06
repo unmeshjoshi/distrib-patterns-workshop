@@ -1,4 +1,4 @@
-package com.distribpatterns.twophase;
+package com.distribpatterns.twophase.messages;
 
 /**
  * Phase 2 (Commit) request.
@@ -6,4 +6,3 @@ package com.distribpatterns.twophase;
  */
 public record CommitRequest(String requestId) {
 }
-

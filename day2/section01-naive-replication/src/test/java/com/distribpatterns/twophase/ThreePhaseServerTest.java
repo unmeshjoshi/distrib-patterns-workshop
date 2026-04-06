@@ -1,5 +1,7 @@
 package com.distribpatterns.twophase;
 
+import com.distribpatterns.twophase.messages.ExecuteResponse;
+import com.distribpatterns.twophase.messages.TwoPhaseMessageTypes;
 import com.tickloom.ProcessId;
 import com.tickloom.future.ListenableFuture;
 import com.tickloom.testkit.Cluster;
@@ -205,4 +207,3 @@ class ThreePhaseServerTest {
         }
     }
 }
-

@@ -1,4 +1,4 @@
-package com.distribpatterns.naive;
+package com.distribpatterns.naive.messages;
 
 /**
  * Response to increment counter request
@@ -6,4 +6,3 @@ package com.distribpatterns.naive;
  */
 public record IncrementCounterResponse(boolean success, int newValue) {
 }
-

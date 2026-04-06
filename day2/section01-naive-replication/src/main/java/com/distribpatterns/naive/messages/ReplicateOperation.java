@@ -1,4 +1,4 @@
-package com.distribpatterns.naive;
+package com.distribpatterns.naive.messages;
 
 /**
  * Internal message for naive replication
@@ -6,4 +6,3 @@ package com.distribpatterns.naive;
  */
 public record ReplicateOperation(String key, int delta) {
 }
-

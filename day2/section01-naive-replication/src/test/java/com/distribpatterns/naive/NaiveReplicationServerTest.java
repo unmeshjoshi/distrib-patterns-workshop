@@ -1,5 +1,7 @@
 package com.distribpatterns.naive;
 
+import com.distribpatterns.naive.messages.IncrementCounterResponse;
+import com.distribpatterns.naive.messages.MessageTypes;
 import com.tickloom.Process;
 import com.tickloom.ProcessId;
 import com.tickloom.future.ListenableFuture;
@@ -16,17 +18,25 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
 public class NaiveReplicationServerTest {
-    // Replica nodes (matching scenario descriptions)
+    // Replica nodes
     private static final ProcessId ATHENS = ProcessId.of("athens");
     private static final ProcessId BYZANTIUM = ProcessId.of("byzantium");
     private static final ProcessId CYRENE = ProcessId.of("cyrene");
 
-    // Clients (actors from scenarios)
+    // Clients
     private static final ProcessId ALICE = ProcessId.of("alice");
+    private static final int SERVER_NODE_COUNT = 3;
+    private static final int CLIENT_NODE_COUNT = 1;
 
+    // The point of this test is the unsafe success window:
+    // the client sees success before followers apply replication.
+    //
+    // Note: delayed messages may still be delivered after Athens fails, so this
+    // test demonstrates replication lag, not deterministic write loss.
+    // We can try network partition and crashing the servers to demo the same effect.
     @Test
-    @DisplayName("Scenario 1: Naive Replication - Athens increments counter, replicated to followers")
-    void testQuorumWrite() throws IOException {
+    @DisplayName("Scenario 1: Naive Replication - client sees success before followers apply replication")
+    void testClientSeesSuccessBeforeFollowersApplyReplication() throws IOException {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
@@ -34,16 +44,17 @@ public class NaiveReplicationServerTest {
                 .start()) {
 
             var client = cluster.newClientConnectedTo(ALICE, ATHENS, CounterClient::new);
-            //Add tick delay for replication messages from athens to byzantium and cyrene
-            int delay = getDelay(cluster, 2, 3, 1);
+
+            int delay = delayForClusterTicks(2);
             cluster.delayForMessageType(MessageTypes.REPLICATE_OP, ATHENS, List.of(BYZANTIUM, CYRENE), delay);
 
+
             String COUNTER_KEY = "counterKey";
-            ListenableFuture<IncrementCounterResponse> counterKey = client.increment(ATHENS, COUNTER_KEY, 2);
+            ListenableFuture<IncrementCounterResponse> incrementResponse = client.increment(ATHENS, COUNTER_KEY, 2);
             //assertEventually ticks only until response is received.
             // Because athens immediately sends the response and then sends the replication message to followers.
             // So it will require one more tick for followers to process the messages.
-            assertEventually(cluster, completesSuccessfully(counterKey));
+            assertEventually(cluster, completesSuccessfully(incrementResponse));
 
             NaiveReplicationServer athensServer = getServerInstance(cluster, ATHENS);
             assertEquals(Integer.valueOf(2), athensServer.getContainerValue(COUNTER_KEY));
@@ -58,37 +69,20 @@ public class NaiveReplicationServerTest {
     }
 
     //TODO: Add this method to cluster class
-    private int getDelay(Cluster cluster, int desiredDelayTicks, int numServerNodes, int numClientNodes) {
-        // IMPORTANT: Network tick multiplier calculation
-//
-// In tickloom's simulated network, the shared network instance is ticked by EACH node
-// during cluster.tick(). This means:
-//   - cluster.tick() → advances time by 1ms for all processes
-//   - But network.tick() is called N times per cluster tick (once per node)
-//   - Where N = numServerNodes + numClientNodes
-//
-// In this test:
-//   - 3 server nodes (ATHENS, BYZANTIUM, CYRENE)
-//   - 1 client node (ALICE)
-//   - Total: 4 nodes ticking the shared network
-//
-// Therefore: 1 cluster.tick() = 4 network.tick() calls
-//
-// To delay replication messages by X "logical/cluster ticks", we need to set:
-//   networkDelayTicks = (numNodes + numClients) * X
-//
-// Example: To keep replication messages delayed for 2 cluster ticks:
-//   delayTicks = (3 + 1) * 2 = 8 network ticks
-//
-// This demonstrates NAIVE REPLICATION's key flaw:
-//   - Client receives SUCCESS response immediately
-//   - But followers haven't received/processed the replication yet
-//   - Creates a window where client thinks write succeeded but data isn't replicated
-//   - If leader crashes in this window, data is LOST despite client receiving success!
-        // server nodes
-        // client nodes
-        int delayTicks = (numServerNodes + numClientNodes) * desiredDelayTicks;
-        return delayTicks;
+    private int delayForClusterTicks(int desiredDelayTicks) {
+        // In this test harness, cluster.tick() advances every client and server node:
+        //   clientNodes.forEach(ClientNode::tick)
+        //   serverNodes.forEach(Node::tick)
+        //
+        // Each node tick advances the same simulated network through OrderedTicker:
+        //   ClientNode::tick -> OrderedTicker.of(network, messageBus, client).tick()
+        //   Node::tick       -> OrderedTicker.of(network, messageBus, process, storage).tick()
+        //
+        // Because the simulated network instance is shared, one logical cluster tick
+        // results in one network tick per client and per server. So to delay a message
+        // by N cluster ticks in this test, we multiply by the total number of ticking
+        // nodes. This helper is test-specific and can move into tickloom later.
+        return (SERVER_NODE_COUNT + CLIENT_NODE_COUNT) * desiredDelayTicks;
     }
 
     //TODO. Move following methods to Cluster class.

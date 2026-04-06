@@ -1,5 +1,8 @@
 package com.distribpatterns.twophase;
 
+import com.distribpatterns.twophase.messages.ExecuteRequest;
+import com.distribpatterns.twophase.messages.ExecuteResponse;
+import com.distribpatterns.twophase.messages.TwoPhaseMessageTypes;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.algorithms.replication.ClusterClient;
@@ -54,4 +57,3 @@ public class TwoPhaseClient extends ClusterClient {
                          response.success() + ", newValue: " + response.newValue());
     }
 }
-

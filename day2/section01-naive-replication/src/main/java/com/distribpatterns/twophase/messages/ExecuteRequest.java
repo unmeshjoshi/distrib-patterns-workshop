@@ -1,4 +1,6 @@
-package com.distribpatterns.twophase;
+package com.distribpatterns.twophase.messages;
+
+import com.distribpatterns.twophase.Operation;
 
 /**
  * Client request to execute an operation through Two-Phase Commit.
@@ -6,4 +8,3 @@ package com.distribpatterns.twophase;
  */
 public record ExecuteRequest(Operation operation) {
 }
-

@@ -1,5 +1,11 @@
 package com.distribpatterns.naive;
 
+import com.distribpatterns.naive.messages.GetRequest;
+import com.distribpatterns.naive.messages.GetResponse;
+import com.distribpatterns.naive.messages.IncrementCounterRequest;
+import com.distribpatterns.naive.messages.IncrementCounterResponse;
+import com.distribpatterns.naive.messages.MessageTypes;
+import com.distribpatterns.naive.messages.ReplicateOperation;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
@@ -37,31 +43,13 @@ public class NaiveReplicationServer extends Replica {
     }
     
     private void handleIncrementRequest(Message message) {
-
-        
         IncrementCounterRequest request = deserializePayload(message.payload(), IncrementCounterRequest.class);
-        
-        System.out.println(this.id + ": INCREMENT " + request.key() + " by " + request.delta());
-        
-        // NAIVE APPROACH: Execute immediately (step 2)
-        int currentValue = counters.getOrDefault(request.key(), 0);
-        int newValue = currentValue + request.delta();
-        counters.put(request.key(), newValue);
-        
-        System.out.println(this.id + ": Executed locally - " + request.key() + " = " + newValue);
-        
-        // PROBLEM WINDOW: If we crash here, update is lost on followers!
+        //First increments.
+        int newValue = executeIncrement(request);
+        sendIncrementResponseToClient(message, newValue);
 
-        // Step 4: Reply to client immediately (before followers acknowledge!)
-        IncrementCounterResponse response = new IncrementCounterResponse(true, newValue);
-        Message responseMsg = createMessage(message.source(), message.correlationId(), response, MessageTypes.INCREMENT_RESPONSE);
-        send(responseMsg);
-
-        // Step 3: Tell others (best effort - no guarantees!)
+        //then sends the value to replicas.
         replicateToFollowers(request);
-
-        
-        System.out.println(this.id + ": Sent response to client (followers may not have it yet!)");
     }
     
     private void replicateToFollowers(IncrementCounterRequest request) {
@@ -87,27 +75,51 @@ public class NaiveReplicationServer extends Replica {
         ReplicateOperation op = deserializePayload(message.payload(), ReplicateOperation.class);
         
         System.out.println(this.id + ": REPLICATE " + op.key() + " by " + op.delta());
-        
-        // Apply operation
-        int currentValue = counters.getOrDefault(op.key(), 0);
-        int newValue = currentValue + op.delta();
-        counters.put(op.key(), newValue);
-        
+
+        int newValue = applyIncrement(op.key(), op.delta());
         System.out.println(this.id + ": Replicated - " + op.key() + " = " + newValue);
+    }
+
+    private int executeIncrement(IncrementCounterRequest request) {
+        System.out.println(this.id + ": INCREMENT " + request.key() + " by " + request.delta());
+        int newValue = applyIncrement(request.key(), request.delta());
+        System.out.println(this.id + ": Executed locally - " + request.key() + " = " + newValue);
+        return newValue;
+    }
+
+    private int applyIncrement(String key, int delta) {
+        int currentValue = counters.getOrDefault(key, 0);
+        int newValue = currentValue + delta;
+        counters.put(key, newValue);
+        return newValue;
+    }
+
+    private void sendIncrementResponseToClient(Message requestMessage, int newValue) {
+        IncrementCounterResponse response = new IncrementCounterResponse(true, newValue);
+        Message responseMsg = createMessage(
+            requestMessage.source(),
+            requestMessage.correlationId(),
+            response,
+            MessageTypes.INCREMENT_RESPONSE
+        );
+        send(responseMsg);
+        System.out.println(this.id + ": Sent response to client (followers may not have it yet!)");
     }
     
     private void handleGetRequest(Message message) {
         GetRequest request = deserializePayload(message.payload(), GetRequest.class);
-        
         System.out.println(this.id + ": GET " + request.key());
-        
+
         Integer value = counters.get(request.key());
+
+        sendGetResponse(message, value);
+    }
+
+    private void sendGetResponse(Message message, Integer value) {
         GetResponse response = new GetResponse(value != null, value != null ? value : 0);
-        
         Message responseMsg = createMessage(message.source(), message.correlationId(), response, MessageTypes.GET_RESPONSE);
         send(responseMsg);
-        
-        System.out.println(this.id + ": Returned " + request.key() + " = " + (value != null ? value : 0));
+        System.out.println(this.id + ": Returned " + (value != null ? value : 0));
     }
 
     public Integer getContainerValue(String counterKey) {

@@ -1,4 +1,4 @@
-package com.distribpatterns.twophase;
+package com.distribpatterns.twophase.messages;
 
 import com.tickloom.messaging.MessageType;
 
@@ -25,4 +25,3 @@ public class TwoPhaseMessageTypes {
         // Utility class - prevent instantiation
     }
 }
-

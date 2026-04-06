@@ -1,4 +1,4 @@
-package com.distribpatterns.twophase;
+package com.distribpatterns.twophase.messages;
 
 /**
  * Response to execute request.
@@ -6,4 +6,3 @@ package com.distribpatterns.twophase;
  */
 public record ExecuteResponse(boolean success, int newValue) {
 }
-

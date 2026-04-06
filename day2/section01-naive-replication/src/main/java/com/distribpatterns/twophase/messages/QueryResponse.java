@@ -1,4 +1,6 @@
-package com.distribpatterns.twophase;
+package com.distribpatterns.twophase.messages;
+
+import com.distribpatterns.twophase.Operation;
 
 /**
  * Phase 0 (Query/CanCommit) response.
@@ -27,4 +29,3 @@ public record QueryResponse(String queryId, String pendingRequestId, Operation p
         return pendingRequestId != null;
     }
 }
-

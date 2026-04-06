@@ -1,4 +1,4 @@
-package com.distribpatterns.naive;
+package com.distribpatterns.naive.messages;
 
 /**
  * Request to increment a counter
@@ -6,4 +6,3 @@ package com.distribpatterns.naive;
  */
 public record IncrementCounterRequest(String key, int delta) {
 }
-

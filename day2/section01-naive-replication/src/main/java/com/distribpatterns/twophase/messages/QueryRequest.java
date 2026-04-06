@@ -1,4 +1,4 @@
-package com.distribpatterns.twophase;
+package com.distribpatterns.twophase.messages;
 
 /**
  * Phase 0 (Query/CanCommit) request.
@@ -7,4 +7,3 @@ package com.distribpatterns.twophase;
  */
 public record QueryRequest(String queryId) {
 }
-
