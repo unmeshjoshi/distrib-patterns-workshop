@@ -142,6 +142,7 @@ public class RecoveryAndCatchUpScenariosTest {
             }
             
             // Find initial leader
+            List<ProcessId> serverIds = List.of(ATHENS, BYZANTIUM, CYRENE);
             MultiPaxosWithHeartbeatsServer initialLeader = List.of(athens, byzantium, cyrene)
                 .stream()
                 .filter(MultiPaxosWithHeartbeatsServer::isLeader)
@@ -149,13 +150,19 @@ public class RecoveryAndCatchUpScenariosTest {
                 .orElse(null);
             
             assertNotNull(initialLeader, "Should have elected initial leader");
-            ProcessId initialLeaderId = ATHENS;
+            ProcessId initialLeaderId = serverIds.stream()
+                .filter(id -> getServer(cluster, id).isLeader())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Could not resolve initial leader id"));
+            List<ProcessId> followerIds = serverIds.stream()
+                .filter(id -> !id.equals(initialLeaderId))
+                .toList();
             
-            // Execute operations to build some committed entries
-            var client = cluster.newClientConnectedTo(CLIENT_ALICE, ATHENS, MultiPaxosWithHeartbeatsClient::new);
+            // Execute one committed entry first so the recovered log has prior state.
+            var client = cluster.newClientConnectedTo(CLIENT_ALICE, initialLeaderId, MultiPaxosWithHeartbeatsClient::new);
             
             ListenableFuture<ExecuteCommandResponse> future1 = client.execute(
-                ATHENS,
+                initialLeaderId,
                 new SetValueOperation("committed", "value1")
             );
             
@@ -166,35 +173,80 @@ public class RecoveryAndCatchUpScenariosTest {
             assertEquals("value1", byzantium.getValue("committed"));
             assertEquals("value1", cyrene.getValue("committed"));
             
-            // Simulate leader failure after accepting but before committing
-            // This is harder to simulate directly, but we can verify the recovery mechanism
-            
-            // Continue cluster operation to trigger re-election
-            for (int i = 0; i < 200; i++) {
+            // Drop COMMIT messages from the current leader so the next entry is accepted
+            // by followers but never committed there. This creates the "orphaned
+            // uncommitted entry" that the new leader must recover.
+            cluster.delayForMessageType(
+                MultiPaxosMessageTypes.COMMIT_REQUEST,
+                initialLeaderId,
+                followerIds,
+                Integer.MAX_VALUE
+            );
+
+            ListenableFuture<ExecuteCommandResponse> future2 = client.execute(
+                initialLeaderId,
+                new SetValueOperation("needs_recovery", "value2")
+            );
+
+            for (int i = 0; i < 150; i++) {
                 cluster.tick();
             }
-            
-            // Find new leader (might be same or different)
-            MultiPaxosWithHeartbeatsServer newLeader = List.of(athens, byzantium, cyrene)
-                .stream()
+
+            boolean followerHasAcceptedUncommittedEntry = followerIds.stream().anyMatch(id -> {
+                PaxosState state = getServer(cluster, id).getPaxosLog().get(1);
+                return state != null &&
+                    state.acceptedValue().isPresent() &&
+                    state.committedValue().isEmpty();
+            });
+            assertTrue(followerHasAcceptedUncommittedEntry,
+                "At least one follower should have the uncommitted accepted entry before failover");
+
+            // Simulate leader failure by isolating it from the remaining majority.
+            cluster.isolateProcess(initialLeaderId);
+
+            // Trigger election explicitly on the surviving majority. The server currently
+            // measures heartbeat timeout using wall-clock time, so relying on simulated
+            // ticks alone would make this test nondeterministic.
+            getServer(cluster, followerIds.get(0)).startElection();
+
+            assertEventually(cluster, () -> followerIds.stream().anyMatch(id -> getServer(cluster, id).isLeader()));
+
+            MultiPaxosWithHeartbeatsServer newLeader = followerIds.stream()
+                .map(id -> getServer(cluster, id))
                 .filter(MultiPaxosWithHeartbeatsServer::isLeader)
                 .findFirst()
                 .orElse(null);
             
             assertNotNull(newLeader, "Should have a leader after recovery");
+            ProcessId newLeaderId = followerIds.stream()
+                .filter(id -> getServer(cluster, id).isLeader())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Could not resolve new leader id"));
+            assertNotEquals(initialLeaderId, newLeaderId, "A different leader should take over after isolation");
             
-            // Verify committed entries still exist
+            // The previously committed entry must survive the leader failure.
             assertEquals("value1", athens.getValue("committed"));
             assertEquals("value1", byzantium.getValue("committed"));
             assertEquals("value1", cyrene.getValue("committed"));
             
-            // Verify new leader has higher or equal generation
+            // Recovery should complete the orphaned entry on the new majority.
+            assertEventually(cluster, () -> followerIds.stream()
+                .allMatch(id -> "value2".equals(getServer(cluster, id).getValue("needs_recovery"))));
+
+            // Reconnect the old leader and verify it catches up too.
+            cluster.reconnectProcess(initialLeaderId);
+            assertEventually(cluster, () -> "value2".equals(getServer(cluster, initialLeaderId).getValue("needs_recovery")));
+
+            // Verify new leader has higher or equal generation.
             assertTrue(newLeader.getPromisedGeneration() >= initialLeader.getPromisedGeneration(),
                 "New leader should have higher or equal generation");
             
-            // Verify log consistency
+            // Verify log consistency after recovery.
             Map<Integer, PaxosState> newLeaderLog = newLeader.getPaxosLog();
-            assertTrue(newLeaderLog.size() >= 1, "New leader should have committed entries");
+            assertTrue(newLeaderLog.size() >= 2, "New leader should have recovered the second entry");
+            assertEquals("value2", athens.getValue("needs_recovery"));
+            assertEquals("value2", byzantium.getValue("needs_recovery"));
+            assertEquals("value2", cyrene.getValue("needs_recovery"));
             
             System.out.println("✓ Leader recovery with uncommitted entries successful!");
         }
