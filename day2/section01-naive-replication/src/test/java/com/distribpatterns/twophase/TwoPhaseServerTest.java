@@ -15,17 +15,17 @@ import static com.tickloom.testkit.ClusterAssertions.assertEventually;
 import static org.junit.Assert.assertEquals;
 
 class TwoPhaseServerTest {
-    // Replica nodes (matching scenario descriptions)
+    // Replica nodes
     private static final ProcessId ATHENS = ProcessId.of("athens");
     private static final ProcessId BYZANTIUM = ProcessId.of("byzantium");
     private static final ProcessId CYRENE = ProcessId.of("cyrene");
 
-    // Clients (actors from scenarios)
+    // Clients
     private static final ProcessId ALICE = ProcessId.of("alice");
 
     @Test
-    @DisplayName("Scenario 1: Naive Replication - Athens increments counter, replicated to followers")
-    void testQuorumWrite() throws IOException {
+    @DisplayName("Scenario 1: Two-Phase Commit - client sees success after commit executes on coordinator")
+    void testClientSeesSuccessAfterCommitExecutesOnCoordinator() throws IOException {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
@@ -33,8 +33,9 @@ class TwoPhaseServerTest {
                 .start()) {
 
             var client = cluster.newClientConnectedTo(ALICE, ATHENS, TwoPhaseClient::new);
-            ListenableFuture<ExecuteResponse> future = client.execute(ATHENS, new IncrementCounterOperation("counter_key", 2));
-            assertEventually(cluster, ()-> future.isCompleted() && !future.isFailed());
+            ListenableFuture<ExecuteResponse> executeResponse =
+                client.execute(ATHENS, new IncrementCounterOperation("counter_key", 2));
+            assertEventually(cluster, () -> executeResponse.isCompleted() && !executeResponse.isFailed());
 
             TwoPhaseServer athensServer = getServerInstance(cluster, ATHENS);
             assertEquals(Integer.valueOf(2), athensServer.getCounterValue("counter_key"));
