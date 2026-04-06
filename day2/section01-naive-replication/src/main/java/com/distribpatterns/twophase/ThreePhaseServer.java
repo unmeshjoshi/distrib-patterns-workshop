@@ -18,6 +18,7 @@ import com.tickloom.messaging.RequestCallback;
 import com.tickloom.network.PeerType;
 
 import java.util.HashMap;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -50,12 +51,7 @@ import java.util.Optional;
 public class ThreePhaseServer extends Replica {
     
     private final Map<String, Integer> counters = new HashMap<>();
-    
-    // Coordinator state
-    private String currentRequestId;
-    private String currentClientKey;  // Track the waiting list key for client response
-    private boolean isRecoveryMode = false;
-    
+
     // Participant state: prepared operations waiting for commit
     private final Map<String, Operation> preparedOperations = new HashMap<>();
     
@@ -78,70 +74,96 @@ public class ThreePhaseServer extends Replica {
     // Phase 0: Coordinator receives client request - first query for pending requests
     private void handleClientExecuteRequest(Message clientMessage) {
         String queryId = java.util.UUID.randomUUID().toString();
-        
         System.out.println(id + ": Starting three-phase execution with query phase " + queryId);
-        
-        // Store client message for later (if no recovery needed)
-        String clientRequestIdKey = "client_" + queryId;
-        waitingList.add(clientRequestIdKey, new RequestCallback<Object>() {
+
+        var quorumCallback = new AsyncQuorumCallback<QueryResponse>(
+            getAllNodes().size(),
+            response -> response != null
+        );
+
+        quorumCallback
+            .onSuccess(responses -> handleQueryQuorumReached(clientMessage, responses.values()))
+            .onFailure(error -> failClientRequest(clientMessage, error));
+
+        sendQueryToAll(queryId, quorumCallback);
+    }
+
+    private void registerClientCompletionCallback(Message clientMessage, String requestId) {
+        waitingList.add(requestId, new RequestCallback<Object>() {
             @Override
             public void onResponse(Object response, ProcessId fromNode) {
-                var responseMsg = new Message(id, clientMessage.source(), PeerType.SERVER, 
-                    TwoPhaseMessageTypes.CLIENT_EXECUTE_RESPONSE, messageCodec.encode(response), 
-                    clientMessage.correlationId());
+                Message responseMsg = new Message(
+                    id,
+                    clientMessage.source(),
+                    PeerType.SERVER,
+                    TwoPhaseMessageTypes.CLIENT_EXECUTE_RESPONSE,
+                    messageCodec.encode(response),
+                    clientMessage.correlationId()
+                );
                 send(responseMsg);
             }
 
             @Override
             public void onError(Exception error) {
-                send(new Message(id, clientMessage.source(), PeerType.SERVER, 
-                    TwoPhaseMessageTypes.CLIENT_EXECUTE_RESPONSE, new byte[0], 
-                    clientMessage.correlationId()));
+                send(new Message(
+                    id,
+                    clientMessage.source(),
+                    PeerType.SERVER,
+                    TwoPhaseMessageTypes.CLIENT_EXECUTE_RESPONSE,
+                    new byte[0],
+                    clientMessage.correlationId()
+                ));
             }
         });
-        
-        // Create quorum callback for QUERY responses
-        var quorumCallback = new AsyncQuorumCallback<QueryResponse>(
-            getAllNodes().size(),
-            response -> response != null
-        );
-        
-        quorumCallback
-            .onSuccess(responses -> {
-                System.out.println(id + ": Query quorum reached, analyzing responses");
-                
-                // Check if any node has pending request
-                Optional<QueryResponse> highestPending = responses.values().stream()
-                    .filter(QueryResponse::hasPendingRequest)
-                    .max((r1, r2) -> r1.pendingRequestId().compareTo(r2.pendingRequestId()));
-                
-                if (highestPending.isPresent()) {
-                    // Recovery mode: complete the pending request
-                    System.out.println(id + ": RECOVERY MODE - Found pending request " + 
-                        highestPending.get().pendingRequestId() + ", completing it first");
-                    System.out.println(id + ": Ignoring new client request during recovery");
-                    
-                    isRecoveryMode = true;
-                    completeRecoveredRequest(highestPending.get(), clientRequestIdKey);
-                } else {
-                    // Normal mode: no pending requests, proceed with client request
-                    System.out.println(id + ": Normal mode - no pending requests found");
-                    proceedWithTwoPhaseCommit(clientMessage, clientRequestIdKey);
-                }
-            })
-            .onFailure(error -> {
-                System.out.println(id + ": Query quorum failed: " + error.getMessage());
-                // Fail the client request
-                waitingList.handleResponse(clientRequestIdKey, 
-                    new ExecuteResponse(false, 0), id);
-            });
-        
-        // Broadcast QUERY to all nodes (including self)
+    }
+
+    private void handleQueryQuorumReached(
+        Message clientMessage,
+        Collection<QueryResponse> queryResponses
+    ) {
+        System.out.println(id + ": Query quorum reached, analyzing responses");
+
+        Optional<QueryResponse> highestPending = highestPendingRequestIn(queryResponses);
+        if (highestPending.isPresent()) {
+            enterRecoveryMode(highestPending.get());
+            return;
+        }
+
+        System.out.println(id + ": Normal mode - no pending requests found");
+        proceedWithTwoPhaseCommit(clientMessage);
+    }
+
+    // Choose the highest request id as a deterministic recovery tie-breaker.
+    // This is NOT a correct implementation, just a stop-gap arrangement.
+    // Later modules replace it with a proper implementation.
+    private Optional<QueryResponse> highestPendingRequestIn(Collection<QueryResponse> queryResponses) {
+        return queryResponses.stream()
+            .filter(QueryResponse::hasPendingRequest)
+            .max((left, right) -> left.pendingRequestId().compareTo(right.pendingRequestId()));
+    }
+
+    private void enterRecoveryMode(QueryResponse pendingRequest) {
+        System.out.println(id + ": RECOVERY MODE - Found pending request " +
+            pendingRequest.pendingRequestId() + ", completing it first");
+        System.out.println(id + ": Ignoring new client request during recovery");
+
+        completeRecoveredRequest(pendingRequest);
+    }
+
+    private void failClientRequest(Message clientMessage, Throwable error) {
+        System.out.println(id + ": Query quorum failed: " + error.getMessage());
+        sendClientExecuteResponse(clientMessage, new ExecuteResponse(false, 0));
+    }
+
+    private void sendQueryToAll(
+        String queryId,
+        AsyncQuorumCallback<QueryResponse> quorumCallback
+    ) {
         QueryRequest queryReq = new QueryRequest(queryId);
         broadcastToAllReplicas(quorumCallback, (node, correlationId) ->
             createMessage(node, correlationId, queryReq, TwoPhaseMessageTypes.QUERY_REQUEST)
         );
-        
+
         System.out.println(id + ": Sent QUERY to " + getAllNodes().size() + " nodes");
     }
     
@@ -187,12 +209,10 @@ public class ThreePhaseServer extends Replica {
         waitingList.handleResponse(message.correlationId(), response, message.source());
     }
     
-    private void completeRecoveredRequest(QueryResponse pending, String clientRequestIdKey) {
+    private void completeRecoveredRequest(QueryResponse pending) {
         String recoveredRequestId = pending.pendingRequestId();
         Operation recoveredOperation = pending.pendingOperation();
-        
-        this.currentRequestId = recoveredRequestId;
-        
+
         System.out.println(id + ": Acting as new coordinator for recovered request " + recoveredRequestId);
         System.out.println(id + ": Re-running full two-phase protocol for recovery");
         
@@ -234,12 +254,10 @@ public class ThreePhaseServer extends Replica {
         // In production, might queue it for after recovery completes
     }
     
-    private void proceedWithTwoPhaseCommit(Message clientMessage, String clientRequestIdKey) {
+    private void proceedWithTwoPhaseCommit(Message clientMessage) {
         String requestId = java.util.UUID.randomUUID().toString();
-        this.currentRequestId = requestId;
-        this.currentClientKey = clientRequestIdKey;
-        this.isRecoveryMode = false;
-        
+        registerClientCompletionCallback(clientMessage, requestId);
+
         System.out.println(id + ": Starting Phase 1 (ACCEPT) for request " + requestId);
         
         // Create quorum callback for ACCEPT responses
@@ -251,12 +269,15 @@ public class ThreePhaseServer extends Replica {
         quorumCallback
             .onSuccess(responses -> {
                 System.out.println(id + ": ACCEPT quorum reached for " + requestId + ", sending COMMIT");
+                // COMMIT carries only the request id, not the operation itself.
+                // This assumes every node receiving COMMIT has already stored the operation
+                // during the ACCEPT phase. A node that misses ACCEPT cannot execute COMMIT
+                // without an additional recovery / catch-up mechanism. Later modules add that.
                 sendCommitToAll(requestId);
             })
             .onFailure(error -> {
                 System.out.println(id + ": ACCEPT quorum failed for " + requestId + ": " + error.getMessage());
-                waitingList.handleResponse(clientRequestIdKey, 
-                    new ExecuteResponse(false, 0), id);
+                waitingList.handleResponse(requestId, new ExecuteResponse(false, 0), id);
             });
         
         // Phase 1: Broadcast ACCEPT to all nodes
@@ -329,25 +350,24 @@ public class ThreePhaseServer extends Replica {
         
         // Execute the operation (only happens after quorum + commit!)
         int result = executeOperation(operation);
-        
-        // If this node is the coordinator, send response to client
-        if (request.requestId().equals(currentRequestId)) {
-            if (isRecoveryMode) {
-                System.out.println(id + ": Recovery complete for txn " + request.requestId());
-                // In recovery mode, we don't send client response (request was ignored)
-            } else {
-                // Normal mode: send response to client using the tracked client key
-                ExecuteResponse response = new ExecuteResponse(true, result);
-                waitingList.handleResponse(currentClientKey, response, message.source());
-                
-                System.out.println(id + ": Sent response to client for txn " + request.requestId());
-            }
-            
-            // Clear coordinator state
-            currentRequestId = null;
-            currentClientKey = null;
-            isRecoveryMode = false;
-        }
+
+        waitingList.handleResponse(
+            request.requestId(),
+            new ExecuteResponse(true, result),
+            message.source()
+        );
+    }
+
+    private void sendClientExecuteResponse(Message clientMessage, ExecuteResponse response) {
+        Message responseMsg = new Message(
+            id,
+            clientMessage.source(),
+            PeerType.SERVER,
+            TwoPhaseMessageTypes.CLIENT_EXECUTE_RESPONSE,
+            messageCodec.encode(response),
+            clientMessage.correlationId()
+        );
+        send(responseMsg);
     }
     
     private int executeOperation(Operation operation) {
