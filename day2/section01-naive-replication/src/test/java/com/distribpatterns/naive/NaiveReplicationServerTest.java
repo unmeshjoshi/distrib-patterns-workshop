@@ -2,7 +2,6 @@ package com.distribpatterns.naive;
 
 import com.distribpatterns.naive.messages.IncrementCounterResponse;
 import com.distribpatterns.naive.messages.MessageTypes;
-import com.tickloom.Process;
 import com.tickloom.ProcessId;
 import com.tickloom.future.ListenableFuture;
 import com.tickloom.testkit.Cluster;
@@ -12,7 +11,6 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.util.List;
 import java.util.function.BooleanSupplier;
-
 import static com.tickloom.testkit.ClusterAssertions.assertEventually;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
@@ -25,9 +23,6 @@ public class NaiveReplicationServerTest {
 
     // Clients
     private static final ProcessId ALICE = ProcessId.of("alice");
-    private static final int SERVER_NODE_COUNT = 3;
-    private static final int CLIENT_NODE_COUNT = 1;
-
     // The point of this test is the unsafe success window:
     // the client sees success before followers apply replication.
     //
@@ -45,7 +40,7 @@ public class NaiveReplicationServerTest {
 
             var client = cluster.newClientConnectedTo(ALICE, ATHENS, CounterClient::new);
 
-            int delay = delayForClusterTicks(2);
+            int delay = cluster.delayForClusterTicks(2);
             cluster.delayForMessageType(MessageTypes.REPLICATE_OP, ATHENS, List.of(BYZANTIUM, CYRENE), delay);
 
 
@@ -56,38 +51,16 @@ public class NaiveReplicationServerTest {
             // So it will require one more tick for followers to process the messages.
             assertEventually(cluster, completesSuccessfully(incrementResponse));
 
-            NaiveReplicationServer athensServer = getServerInstance(cluster, ATHENS);
+            NaiveReplicationServer athensServer = cluster.getNode(ATHENS);
             assertEquals(Integer.valueOf(2), athensServer.getContainerValue(COUNTER_KEY));
 
-            NaiveReplicationServer byzantiumServer = getServerInstance(cluster, BYZANTIUM);
+            NaiveReplicationServer byzantiumServer = cluster.getNode(BYZANTIUM);
             assertNull(byzantiumServer.getContainerValue(COUNTER_KEY));
 
-            NaiveReplicationServer cyreneServer = getServerInstance(cluster, CYRENE);
+            NaiveReplicationServer cyreneServer = cluster.getNode(CYRENE);
             assertNull(cyreneServer.getContainerValue(COUNTER_KEY));
 
         }
-    }
-
-    //TODO: Add this method to cluster class
-    private int delayForClusterTicks(int desiredDelayTicks) {
-        // In this test harness, cluster.tick() advances every client and server node:
-        //   clientNodes.forEach(ClientNode::tick)
-        //   serverNodes.forEach(Node::tick)
-        //
-        // Each node tick advances the same simulated network through OrderedTicker:
-        //   ClientNode::tick -> OrderedTicker.of(network, messageBus, client).tick()
-        //   Node::tick       -> OrderedTicker.of(network, messageBus, process, storage).tick()
-        //
-        // Because the simulated network instance is shared, one logical cluster tick
-        // results in one network tick per client and per server. So to delay a message
-        // by N cluster ticks in this test, we multiply by the total number of ticking
-        // nodes. This helper is test-specific and can move into tickloom later.
-        return (SERVER_NODE_COUNT + CLIENT_NODE_COUNT) * desiredDelayTicks;
-    }
-
-    //TODO. Move following methods to Cluster class.
-    public static <T extends Process>  T getServerInstance(Cluster cluster, ProcessId processId) {
-        return (T) cluster.getProcess(processId);
     }
 
     private static BooleanSupplier completesSuccessfully(ListenableFuture<IncrementCounterResponse> future) {
