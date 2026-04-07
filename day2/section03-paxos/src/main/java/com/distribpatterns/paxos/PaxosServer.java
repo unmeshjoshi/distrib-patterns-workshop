@@ -1,5 +1,6 @@
 package com.distribpatterns.paxos;
 
+import com.distribpatterns.paxos.messages.*;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
@@ -73,8 +74,6 @@ public class PaxosServer extends Replica {
         );
     }
 
-    static record ClientMessage(String clientKey, Operation operation) {}
-
     // ========== PROPOSER ROLE ==========
 
     private void handleClientExecuteRequest(Message clientMessage) {
@@ -92,6 +91,8 @@ public class PaxosServer extends Replica {
 
         startPaxosWithRetry(new ClientMessage(clientKey, request.operation()), 0);
     }
+
+    //Starts paxos protocol
     private void startPaxosWithRetry(ClientMessage clientMessage, int attempt) {
         if (attemptsExhausted(attempt)) {
             System.out.println(id + ": Max retries reached, waiting for another proposer to complete the value");
@@ -100,10 +101,9 @@ public class PaxosServer extends Replica {
 
         // Generate new generation number (higher than any seen)
         int generation = generationCounter.incrementAndGet();
+        // Phase 1: Prepare
 
         System.out.println(id + ": Starting Paxos attempt " + (attempt + 1) + " with generation " + generation);
-
-        // Phase 1: Prepare
         startPreparePhase(generation, clientMessage, attempt);
     }
     private void startPreparePhase(int generation, ClientMessage clientMessage, int attempt) {
@@ -120,6 +120,7 @@ public class PaxosServer extends Replica {
                     startPaxosWithRetry(clientMessage, attempt + 1);
                 })
                 .build();
+
         broadcastPrepareFor(generation, quorumCallback);
     }
     private void startProposePhase(long generation, ClientMessage clientMessage,
@@ -149,6 +150,7 @@ public class PaxosServer extends Replica {
         );
         System.out.println(id + ": Broadcast PROPOSE to " + getAllNodes().size() + " nodes");
     }
+
     private void startCommitPhase(long generation, ClientMessage clientMessage, Operation committedOperation) {
         System.out.println(id + ": Phase 3 - COMMIT value " + committedOperation);
 

@@ -1,4 +1,6 @@
-package com.distribpatterns.paxos;
+package com.distribpatterns.paxos.messages;
+
+import com.distribpatterns.paxos.Operation;
 
 /**
  * Phase 2a message: Proposer asks acceptors to accept this specific value

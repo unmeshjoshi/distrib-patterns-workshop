@@ -1,4 +1,4 @@
-package com.distribpatterns.paxos;
+package com.distribpatterns.paxos.messages;
 
 /**
  * Phase 2b message: Acceptor's response to ProposeRequest.

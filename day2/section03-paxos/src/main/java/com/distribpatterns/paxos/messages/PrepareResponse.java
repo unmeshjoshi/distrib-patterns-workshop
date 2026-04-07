@@ -1,4 +1,6 @@
-package com.distribpatterns.paxos;
+package com.distribpatterns.paxos.messages;
+
+import com.distribpatterns.paxos.Operation;
 
 /**
  * Phase 1b message: Acceptor's response to PrepareRequest.

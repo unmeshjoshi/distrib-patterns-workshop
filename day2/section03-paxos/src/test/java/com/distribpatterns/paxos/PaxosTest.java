@@ -1,5 +1,6 @@
 package com.distribpatterns.paxos;
 
+import com.distribpatterns.paxos.messages.ExecuteResponse;
 import com.tickloom.ProcessId;
 import com.tickloom.future.ListenableFuture;
 import com.tickloom.testkit.Cluster;
@@ -9,7 +10,6 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.util.List;
 
-import static com.tickloom.testkit.ClusterAssertions.assertEventually;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -40,142 +40,118 @@ public class PaxosTest {
     // Clients
     private static final ProcessId CLIENT_ALICE = ProcessId.of("alice");
     private static final ProcessId CLIENT_BOB = ProcessId.of("bob");
+    private static final String COUNTER_KEY = "counter";
+    private static final String TITLE_KEY = "title";
+    private static final String AUTHOR_KEY = "author";
 
     @Test
     @DisplayName("Basic Consensus: Single proposer reaches consensus (happy path)")
     void testBasicConsensus() throws IOException {
-        System.out.println("\n=== TEST: Basic Consensus ===\n");
-
         try (var cluster = Cluster.createSimulated(List.of(ATHENS, BYZANTIUM, CYRENE), (peerIds, processParams) -> new PaxosServer(peerIds, processParams))) {
-            assertEventually(cluster, () -> cluster.areAllNodesInitialized());
+            waitUntilAllNodesInitialised(cluster);
 
             var client = cluster.newClientConnectedTo(CLIENT_ALICE, ATHENS, PaxosClient::new);
 
-            // GIVEN: A cluster of 3 nodes (athens, byzantium, cyrene)
-            // WHEN: Athens proposes an increment operation
-            ListenableFuture<ExecuteResponse> future = client.execute(ATHENS,
-                    new IncrementCounterOperation("counter"));
-
-            // Wait for operation to complete
-            assertEventually(cluster, () -> future.isCompleted() && !future.isFailed());
-
-            // THEN: Consensus is reached
-            var response = future.getResult();
+            ExecuteResponse response = cluster.tickUntilComplete(client.execute(
+                    ATHENS,
+                    new IncrementCounterOperation(COUNTER_KEY)
+            ));
             assertTrue(response.success(), "Operation should succeed");
             assertEquals("1", response.result(), "Counter should be 1");
 
-            // AND: All nodes should have the same value
-            PaxosServer athens = getServer(cluster, ATHENS);
-            PaxosServer byzantium = getServer(cluster, BYZANTIUM);
-            PaxosServer cyrene = getServer(cluster, CYRENE);
-
-            assertEquals(1, athens.getCounter("counter"), "Athens should have counter=1");
-            assertEquals(1, byzantium.getCounter("counter"), "Byzantium should have counter=1");
-            assertEquals(1, cyrene.getCounter("counter"), "Cyrene should have counter=1");
-
-            // AND: All nodes should have committed the value
-            assertNotNull(athens.getState().committedValue(), "Athens should have committed");
-            assertNotNull(byzantium.getState().committedValue(), "Byzantium should have committed");
-            assertNotNull(cyrene.getState().committedValue(), "Cyrene should have committed");
-
-            System.out.println("\n=== Test passed: Basic consensus achieved ===\n");
+            assertCounterOnAllReplicas(cluster, COUNTER_KEY, 1);
+            assertCommittedValueOnAllReplicas(cluster);
         }
     }
 
     @Test
-    @DisplayName("Concurrent Proposals: Multiple proposers, Only one succeeds")
+    @DisplayName("Concurrent Proposals: Multiple proposers converge on one chosen value")
     void testConcurrentProposals() throws IOException {
-        System.out.println("\n=== TEST: Concurrent Proposals ===\n");
-
         try (var cluster = Cluster.createSimulated(List.of(ATHENS, BYZANTIUM, CYRENE), (peerIds, processParams) -> new PaxosServer(peerIds, processParams))) {
-
-            assertEventually(cluster, () -> cluster.areAllNodesInitialized());
-
-            assertEventually(cluster, () ->
-                    getProcess(cluster, ATHENS).isInitialised() && getProcess(cluster, BYZANTIUM).isInitialised() && getProcess(cluster, CYRENE).isInitialised());
-
+            waitUntilAllNodesInitialised(cluster);
 
             var aliceClient = cluster.newClientConnectedTo(CLIENT_ALICE, ATHENS, PaxosClient::new);
             var bobClient = cluster.newClientConnectedTo(CLIENT_BOB, BYZANTIUM, PaxosClient::new);
 
-            // GIVEN: A cluster of 3 nodes
-            // WHEN: Two clients propose operations simultaneously to different coordinators
             ListenableFuture<ExecuteResponse> aliceFuture = aliceClient.execute(ATHENS,
-                    new SetValueOperation("title", "Microservices"));
+                    new SetValueOperation(TITLE_KEY, "Microservices"));
 
             ListenableFuture<ExecuteResponse> bobFuture = bobClient.execute(BYZANTIUM,
-                    new SetValueOperation("title", "Distributed Systems"));
+                    new SetValueOperation(TITLE_KEY, "Distributed Systems"));
 
-            assertEventually(cluster, () -> aliceFuture.isCompleted() && bobFuture.isCompleted());
-            //only one request succeeds. After the successful request commits,
-            // the other request gets the value from the execution of commited operation.
-            assertOnlyOneSucceeds(bobFuture, aliceFuture);
+            cluster.tickUntilComplete(aliceFuture);
+            cluster.tickUntilComplete(bobFuture);
+
+            assertExactlyOneClientRequestSucceeds(aliceFuture, bobFuture);
             String aliceValue = aliceFuture.getResult().result();
             String bobValue = bobFuture.getResult().result();
-            assertEquals(aliceValue, bobValue);
-            //Both alice and bob get the same value back. Only one request out of the two is actually successful,
-            //the other gets the value from the execution of commited operation.
+            assertEquals(aliceValue, bobValue, "Both clients should observe the same chosen value");
 
-            assertEventually(cluster, () -> {
-                return List.of(ATHENS, BYZANTIUM, CYRENE).stream().anyMatch(pid -> {
-                    PaxosServer server = getServer(cluster, pid);
-                    String title = server.getValue("title");
-                    return title != null && title.equals(aliceValue);
-                });
-            });
+            cluster.tickUntil(() -> allReplicasHaveValue(cluster, TITLE_KEY, aliceValue));
         }
     }
 
-    private static void assertOnlyOneSucceeds(ListenableFuture<ExecuteResponse> bobFuture, ListenableFuture<ExecuteResponse> aliceFuture) {
+    private static void assertExactlyOneClientRequestSucceeds(ListenableFuture<ExecuteResponse> aliceFuture,
+                                                              ListenableFuture<ExecuteResponse> bobFuture) {
         ExecuteResponse aliceResult = aliceFuture.getResult();
         ExecuteResponse bobResult = bobFuture.getResult();
-        assertTrue((bobResult.success() || aliceResult.success()) && !(bobFuture.getResult().success() && aliceResult.success()));
-    }
+        boolean aliceSucceeded = aliceResult.success();
+        boolean bobSucceeded = bobResult.success();
 
-    private static PaxosServer getProcess(Cluster cluster, ProcessId processId) {
-        return (PaxosServer) cluster.getProcess(processId);
+        assertTrue(aliceSucceeded ^ bobSucceeded,
+                "Exactly one client request should be chosen as the successful proposal");
     }
 
     @Test
     @DisplayName("Set Value Operation: Key-value store through Paxos consensus")
     void testSetValueOperation() throws IOException {
-        System.out.println("\n=== TEST: Set Value Operation ===\n");
-
         try (var cluster = Cluster.createSimulated(List.of(ATHENS, BYZANTIUM, CYRENE), (peerIds, processParams) -> new PaxosServer(peerIds, processParams))) {
-
-            assertEventually(cluster, () -> cluster.areAllNodesInitialized());
+            waitUntilAllNodesInitialised(cluster);
 
             var client = cluster.newClientConnectedTo(CLIENT_ALICE, ATHENS, PaxosClient::new);
 
-            // WHEN: Client sets a key-value pair
-            ListenableFuture<ExecuteResponse> future = client.execute(ATHENS,
-                    new SetValueOperation("author", "Martin"));
-
-            // Wait for operation to complete
-            assertEventually(cluster, () -> future.isCompleted() && !future.isFailed());
-
-            // THEN: Operation succeeds
-            var response = future.getResult();
+            ExecuteResponse response = cluster.tickUntilComplete(client.execute(
+                    ATHENS,
+                    new SetValueOperation(AUTHOR_KEY, "Martin")
+            ));
             assertTrue(response.success(), "Operation should succeed");
             assertEquals("Martin", response.result(), "Result should match the set value");
 
-            // AND: All nodes should have the value
-            PaxosServer athens = getServer(cluster, ATHENS);
-            PaxosServer byzantium = getServer(cluster, BYZANTIUM);
-            PaxosServer cyrene = getServer(cluster, CYRENE);
-
-            assertEquals("Martin", athens.getValue("author"));
-            assertEquals("Martin", byzantium.getValue("author"));
-            assertEquals("Martin", cyrene.getValue("author"));
-
-            System.out.println("\n=== Test passed: Set value operation ===\n");
+            assertValueOnAllReplicas(cluster, AUTHOR_KEY, "Martin");
         }
     }
 
-    /**
-     * Helper to get server instance from cluster.
-     */
+    private static void waitUntilAllNodesInitialised(Cluster cluster) {
+        cluster.tickUntil(() ->
+                getServer(cluster, ATHENS).isInitialised()
+                        && getServer(cluster, BYZANTIUM).isInitialised()
+                        && getServer(cluster, CYRENE).isInitialised());
+    }
+
+    private static boolean allReplicasHaveValue(Cluster cluster, String key, String expectedValue) {
+        return List.of(ATHENS, BYZANTIUM, CYRENE).stream()
+                .allMatch(processId -> expectedValue.equals(getServer(cluster, processId).getValue(key)));
+    }
+
+    private static void assertCounterOnAllReplicas(Cluster cluster, String key, int expectedValue) {
+        assertEquals(expectedValue, getServer(cluster, ATHENS).getCounter(key), "Athens should have the expected counter value");
+        assertEquals(expectedValue, getServer(cluster, BYZANTIUM).getCounter(key), "Byzantium should have the expected counter value");
+        assertEquals(expectedValue, getServer(cluster, CYRENE).getCounter(key), "Cyrene should have the expected counter value");
+    }
+
+    private static void assertValueOnAllReplicas(Cluster cluster, String key, String expectedValue) {
+        assertEquals(expectedValue, getServer(cluster, ATHENS).getValue(key));
+        assertEquals(expectedValue, getServer(cluster, BYZANTIUM).getValue(key));
+        assertEquals(expectedValue, getServer(cluster, CYRENE).getValue(key));
+    }
+
+    private static void assertCommittedValueOnAllReplicas(Cluster cluster) {
+        assertTrue(getServer(cluster, ATHENS).getState().committedValue().isPresent(), "Athens should have committed");
+        assertTrue(getServer(cluster, BYZANTIUM).getState().committedValue().isPresent(), "Byzantium should have committed");
+        assertTrue(getServer(cluster, CYRENE).getState().committedValue().isPresent(), "Cyrene should have committed");
+    }
+
     private static PaxosServer getServer(Cluster cluster, ProcessId id) {
-        return (PaxosServer) cluster.getProcess(id);
+        return cluster.getNode(id);
     }
 }

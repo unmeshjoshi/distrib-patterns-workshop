@@ -1,4 +1,4 @@
-package com.distribpatterns.paxos;
+package com.distribpatterns.paxos.messages;
 
 import com.tickloom.messaging.MessageType;
 
