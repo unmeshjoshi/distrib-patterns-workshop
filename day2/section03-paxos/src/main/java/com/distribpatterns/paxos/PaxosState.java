@@ -63,10 +63,16 @@ public record PaxosState(
     
     /**
      * Commit the value with this generation.
-     * Returns new state with updated committedValue.
+     * Returns new state with updated accepted/committed value.
+     * Learning a chosen value must not lower the highest promise already made.
      */
     public PaxosState commit(long generation, Operation value) {
-        return new PaxosState(generation, Optional.of(generation), Optional.of(value), Optional.of(value));
+        return new PaxosState(
+                promisedGeneration,
+                Optional.of(generation),
+                Optional.of(value),
+                Optional.of(value)
+        );
     }
     
     @Override
@@ -79,4 +85,3 @@ public record PaxosState(
                 '}';
     }
 }
-

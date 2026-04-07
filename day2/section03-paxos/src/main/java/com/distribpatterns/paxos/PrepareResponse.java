@@ -8,13 +8,14 @@ package com.distribpatterns.paxos;
  * This allows the proposer to discover any previously accepted values.
  * 
  * @param promised Whether the acceptor promises this generation
+ * @param promisedGeneration The generation this acceptor is currently promised up to
  * @param acceptedGeneration The generation of any previously accepted value (null if none)
  * @param acceptedValue The previously accepted value (null if none)
  */
 public record PrepareResponse(
     boolean promised,
+    long promisedGeneration,
     Long acceptedGeneration,
     Operation acceptedValue
 ) {
 }
-
