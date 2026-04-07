@@ -1,5 +1,9 @@
 package com.distribpatterns.generation;
 
+import com.distribpatterns.generation.messages.GenerationMessageTypes;
+import com.distribpatterns.generation.messages.NextGenerationResponse;
+import com.distribpatterns.generation.messages.PrepareRequest;
+import com.distribpatterns.generation.messages.PrepareResponse;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
@@ -9,8 +13,10 @@ import com.tickloom.messaging.Message;
 import com.tickloom.messaging.MessageType;
 import com.tickloom.network.PeerType;
 
+import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
 
 /**
  * Generation Voting Server - Distributed monotonic number generation using quorum voting.
@@ -53,18 +59,11 @@ public class GenerationVotingServer extends Replica {
      *    - Store generation under a fixed key (e.g., GEN_KEY) as big-endian 64-bit.
      *    - If batching other state, write together in one WriteBatch with sync=true so
      *      they become durable in the same crash cut (RocksDB WAL handles journaling/fsync).
-     *    - Examples:
-     *        • TiKV (older releases: separate RocksDB “raftdb” for Raft log)
-     *        • CockroachDB (historical, pre-Pebble: Raft log/state in RocksDB)
      *
      * Invariant (critical):
      *   - Generation must be durable and monotonic across restarts.
-     *   - If you persist both entries and generation, make them durable together (same fsync
-     *     boundary). Avoid splitting across different durability domains without strict
-     *     ordering and recovery rules.
      *
-     * This code currently uses option B for simplicity. Swap to option A by routing load/store
-     * to your own WAL implementation.
+     * This code currently uses option B for simplicity.
      */
 
     private long generation = 0L;
@@ -73,6 +72,7 @@ public class GenerationVotingServer extends Replica {
     private static final int MAX_ELECTION_ATTEMPTS = 5;
 
     private static final String GENERATION_KEY = "generation";
+    private long highestProposal = 0L;
 
     public GenerationVotingServer(List<ProcessId> peerIds, ProcessParams params) {
         super(peerIds, params);
@@ -108,10 +108,13 @@ public class GenerationVotingServer extends Replica {
      * Proposes generation + 1 and runs quorum voting.
      */
     private void handleNextGenerationRequest(Message clientMessage) {
-        long nextGeneration = bumpGeneration(generation);
-        System.out.println(id + ": Received NextGenerationRequest, starting election for generation " + nextGeneration);
+        startElectionFor(clientMessage);
+    }
 
-        // Run election starting from generation + 1
+    private void startElectionFor(Message clientMessage) {
+        long nextGeneration = bumpGeneration(Math.max(generation, highestProposal));
+        highestProposal = nextGeneration;
+        System.out.println(id + ": Received NextGenerationRequest, starting election for generation " + nextGeneration);
         runElection(nextGeneration, 0, clientMessage);
     }
 
@@ -127,28 +130,51 @@ public class GenerationVotingServer extends Replica {
     private void runElection(final long proposedGeneration, int attempt, Message clientMessage) {
         if (attemptsExhausted(attempt)) {
             System.out.println(id + ": Election failed after " + MAX_ELECTION_ATTEMPTS + " attempts");
-            respondToClient(clientMessage, failureResponse());
             return;
         }
 
-        System.out.println(id + ": Election attempt " + (attempt + 1) + ", proposing generation " + proposedGeneration);
+        attemptElectionFor(proposedGeneration, attempt, clientMessage);
+    }
 
-        // Create quorum callback for PREPARE responses
-        var quorumCallback = new AsyncQuorumCallback<PrepareResponse>(
-                clusterSize(),
-                GenerationVotingServer::isPromised
-        );
+    private void attemptElectionFor(long proposedGeneration, int attempt, Message clientMessage) {
+        logElectionAttempt(proposedGeneration, attempt);
 
-        quorumCallback
+        var quorumCallback = this.<PrepareResponse>quorumCallbackBuilder()
+                .succeedsWhen(response -> isPromiseFor(response, proposedGeneration))
                 .onSuccess(responses -> {
-                    // Quorum reached - election WON!
-                    System.out.println(id + ": Election WON for generation " + proposedGeneration +
-                            " (quorum: " + responses.size() + "/" + clusterSize() + ")");
+                    if (isObsoleteProposal(proposedGeneration)) {
+                        return;
+                    }
+                    logWonElection(proposedGeneration, responses);
                     respondToClient(clientMessage, new NextGenerationResponse(proposedGeneration));
                 })
-                .onFailure(error -> tryNextGeneration(proposedGeneration, attempt, clientMessage));
+                .onFailure(error -> {
+                    if (isObsoleteProposal(proposedGeneration)) {
+                        return;
+                    }
+                    tryNextGeneration(proposedGeneration, attempt, clientMessage);
+                })
+                .build();
 
         // Broadcast PREPARE to all replicas (including self)
+        requestVoteFromAllReplicas(proposedGeneration, quorumCallback);
+    }
+
+    private <T> QuorumCallbackBuilder<T> quorumCallbackBuilder() {
+        return QuorumCallbackBuilder.forTotalResponses(clusterSize());
+    }
+
+    private void logWonElection(long proposedGeneration, Map<ProcessId, PrepareResponse> responses) {
+        // Quorum reached - election WON!
+        System.out.println(id + ": Election WON for generation " + proposedGeneration +
+                " (quorum: " + responses.size() + "/" + clusterSize() + ")");
+    }
+
+    private void logElectionAttempt(long proposedGeneration, int attempt) {
+        System.out.println(id + ": Election attempt " + (attempt + 1) + ", proposing generation " + proposedGeneration);
+    }
+
+    private void requestVoteFromAllReplicas(long proposedGeneration, AsyncQuorumCallback<PrepareResponse> quorumCallback) {
         var prepareReq = new PrepareRequest(proposedGeneration);
         broadcastToAllReplicas(quorumCallback, (node, correlationId) ->
                 createMessage(node, correlationId, prepareReq, GenerationMessageTypes.PREPARE_REQUEST)
@@ -164,14 +190,23 @@ public class GenerationVotingServer extends Replica {
 
     private void tryNextGeneration(long lastTriedGeneration, int attempt, Message clientMessage) {
         // Quorum failed - election LOST, retry with higher generation
-        long nextGeneration = bumpGeneration(lastTriedGeneration);
+        long nextGeneration = bumpGeneration(Math.max(lastTriedGeneration, highestProposal));
+        highestProposal = nextGeneration;
         System.out.println(id + ": Election LOST for generation " + lastTriedGeneration + ", retrying with " + nextGeneration);
 
         // Retry with next generation number
         runElection(nextGeneration, attempt + 1, clientMessage);
     }
-    private static boolean isPromised(PrepareResponse response) {
-        return response != null && response.promised();
+
+    private boolean isObsoleteProposal(long proposedGeneration) {
+        return proposedGeneration != highestProposal;
+    }
+
+
+    private static boolean isPromiseFor(PrepareResponse response, long proposedGeneration) {
+        return response != null
+                && response.promised()
+                && response.currentGeneration() == proposedGeneration;
     }
 
     private int clusterSize() {
@@ -183,13 +218,17 @@ public class GenerationVotingServer extends Replica {
     }
 
     private void respondToClient(Message clientMessage, NextGenerationResponse body) {
+        respondToClient(clientMessage.source(), clientMessage.correlationId(), body);
+    }
+
+    private void respondToClient(ProcessId client, String correlationId, NextGenerationResponse body) {
         var responseMsg = new Message(
                 id,
-                clientMessage.source(),
+                client,
                 PeerType.SERVER,
                 GenerationMessageTypes.NEXT_GENERATION_RESPONSE,
                 messageCodec.encode(body),
-                clientMessage.correlationId()
+                correlationId
         );
         send(responseMsg);
     }
@@ -203,42 +242,33 @@ public class GenerationVotingServer extends Replica {
     private void handlePrepareRequest(Message message) {
         PrepareRequest request = deserializePayload(message.payload(), PrepareRequest.class);
 
-        ListenableFuture<Boolean> promised = tryAccept(message, request);
-
-        promised.handle((result, exception) -> {
-            // Send vote back to coordinator
-            var response = new PrepareResponse(result);
-            var responseMsg = createMessage(
-                    message.source(),
-                    message.correlationId(),
-                    response,
-                    GenerationMessageTypes.PREPARE_RESPONSE
-            );
-            send(responseMsg);
-
-        });
-
+        tryAccept(message, request)
+                .handle((result, exception) -> sendPrepareResponse(message, Boolean.TRUE.equals(result)));
     }
 
     private ListenableFuture<Boolean> tryAccept(Message message, PrepareRequest request) {
         final long proposed = request.proposedGeneration();
-        // Strict '>' rule: fast reject as an already-completed future
+        // Strict '>' rule: once this node has moved to generation N, no other
+        // request may newly claim N again. Late responses for an already-made
+        // promise can still arrive at the proposer, but a fresh PREPARE for the
+        // same generation must be rejected here.
         if (proposed <= generation) {
             System.out.println(id + ": REJECTED generation " + proposed +
                     " from " + message.source() + " (current: " + generation + ")");
-            ListenableFuture result = new ListenableFuture();
-            result.complete(false);
-            return result;
+            return completedFuture(false);
         }
 
         return accept(message, proposed);
     }
 
-    private ListenableFuture accept(Message message, long proposed) {
-        ListenableFuture result = new ListenableFuture();
+    private ListenableFuture<Boolean> accept(Message message, long proposed) {
+        ListenableFuture<Boolean> result = new ListenableFuture<>();
+        this.generation = proposed; // Update locally but respond only after it is persisted.
+        // Immediate local update is important because it rejects any new PREPARE
+        // requests at this generation while the persist operation is still in flight.
         // Persist first; only then consider it "promised"
         persist(GENERATION_KEY, proposed, () -> {
-            generation = proposed;
+
             System.out.println(id + ": ACCEPTED generation " + proposed + " from " + message.source());
             result.complete(true);
         }, () -> {
@@ -247,6 +277,23 @@ public class GenerationVotingServer extends Replica {
             result.complete(false);
         });
         return result;
+    }
+
+    private void sendPrepareResponse(Message prepareMessage, boolean promised) {
+        var response = new PrepareResponse(promised, generation);
+        var responseMsg = createMessage(
+                prepareMessage.source(),
+                prepareMessage.correlationId(),
+                response,
+                GenerationMessageTypes.PREPARE_RESPONSE
+        );
+        send(responseMsg);
+    }
+
+    private static ListenableFuture<Boolean> completedFuture(boolean result) {
+        ListenableFuture<Boolean> future = new ListenableFuture<>();
+        future.complete(result);
+        return future;
     }
 
     /**

@@ -1,4 +1,4 @@
-package com.distribpatterns.generation;
+package com.distribpatterns.generation.messages;
 
 /**
  * Client request that triggers leader election at the server.

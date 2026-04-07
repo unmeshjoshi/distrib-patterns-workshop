@@ -1,5 +1,6 @@
 package com.distribpatterns.generation;
 
+import com.distribpatterns.generation.messages.NextGenerationResponse;
 import com.tickloom.ProcessId;
 import com.tickloom.future.ListenableFuture;
 import com.tickloom.testkit.Cluster;
@@ -11,6 +12,8 @@ import java.util.List;
 
 import static com.tickloom.testkit.ClusterAssertions.assertEventually;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests for Generation Voting algorithm.
@@ -24,8 +27,6 @@ public class GenerationVotingTest {
     private static final ProcessId ATHENS = ProcessId.of("athens");
     private static final ProcessId BYZANTIUM = ProcessId.of("byzantium");
     private static final ProcessId CYRENE = ProcessId.of("cyrene");
-    private static final ProcessId DELPHI = ProcessId.of("delphi");
-    private static final ProcessId EPHESUS = ProcessId.of("ephesus");
     
     // Client
     private static final ProcessId CLIENT = ProcessId.of("client");
@@ -34,166 +35,128 @@ public class GenerationVotingTest {
     @DisplayName("Happy Path: Generate monotonically increasing numbers with 3 nodes")
     void testGenerateMonotonicNumbers() throws IOException {
         try (var cluster = Cluster.create(List.of(ATHENS, BYZANTIUM, CYRENE), (peerIds, processParams) -> new GenerationVotingServer(peerIds, processParams))) {
-
-            assertEventually(cluster, ()->
-                    getProcess(cluster, ATHENS).isInitialised() && getProcess(cluster, BYZANTIUM).isInitialised() && getProcess(cluster, CYRENE).isInitialised());
+            waitUntilAllNodesInitialised(cluster);
 
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, GenerationVotingClient::new);
             
             // Request 1: Should get generation 1
-            System.out.println("\n=== Request 1 ===");
-            ListenableFuture<NextGenerationResponse> future1 = client.getNextGeneration(ATHENS);
-            assertEventually(cluster, () -> future1.isCompleted() && !future1.isFailed());
+            NextGenerationResponse response1 = cluster.tickUntilComplete(client.getNextGeneration(ATHENS));
             
-            assertEquals(1, future1.getResult().generation(), "First generation should be 1");
+            assertEquals(1, response1.generation(), "First generation should be 1");
             
             // Verify all nodes have generation 1
-            GenerationVotingServer athensServer = getServer(cluster, ATHENS);
-            GenerationVotingServer byzantiumServer = getServer(cluster, BYZANTIUM);
-            GenerationVotingServer cyreneServer = getServer(cluster, CYRENE);
-            
-            assertEquals(1, athensServer.getGeneration(), "Athens should have generation 1");
-            assertEquals(1, byzantiumServer.getGeneration(), "Byzantium should have generation 1");
-            assertEquals(1, cyreneServer.getGeneration(), "Cyrene should have generation 1");
+            assertGenerationOnAllNodes(cluster, 1);
             
             // Request 2: Should get generation 2
-            System.out.println("\n=== Request 2 ===");
-            ListenableFuture<NextGenerationResponse> future2 = client.getNextGeneration(ATHENS);
-            assertEventually(cluster, () -> future2.isCompleted() && !future2.isFailed());
+            NextGenerationResponse response2 = cluster.tickUntilComplete(client.getNextGeneration(ATHENS));
             
-            assertEquals(2, future2.getResult().generation(), "Second generation should be 2");
-            assertEquals(2, athensServer.getGeneration(), "Athens should have generation 2");
-            assertEquals(2, byzantiumServer.getGeneration(), "Byzantium should have generation 2");
-            assertEquals(2, cyreneServer.getGeneration(), "Cyrene should have generation 2");
+            assertEquals(2, response2.generation(), "Second generation should be 2");
+            assertGenerationOnAllNodes(cluster, 2);
             
             // Request 3: Should get generation 3
-            System.out.println("\n=== Request 3 ===");
-            ListenableFuture<NextGenerationResponse> future3 = client.getNextGeneration(ATHENS);
-            assertEventually(cluster, () -> future3.isCompleted() && !future3.isFailed());
+            NextGenerationResponse response3 = cluster.tickUntilComplete(client.getNextGeneration(ATHENS));
             
-            assertEquals(3, future3.getResult().generation(), "Third generation should be 3");
-            assertEquals(3, athensServer.getGeneration(), "Athens should have generation 3");
-            assertEquals(3, byzantiumServer.getGeneration(), "Byzantium should have generation 3");
-            assertEquals(3, cyreneServer.getGeneration(), "Cyrene should have generation 3");
-            
-            System.out.println("\n=== SUCCESS: All generations monotonically increasing ===");
+            assertEquals(3, response3.generation(), "Third generation should be 3");
+            assertGenerationOnAllNodes(cluster, 3);
         }
-    }
-
-    private static GenerationVotingServer getProcess(Cluster cluster, ProcessId processId) {
-        return (GenerationVotingServer)cluster.getProcess(processId);
     }
 
     @Test
     @DisplayName("Multiple Coordinators: Different nodes can coordinate elections")
     void testMultipleCoordinators() throws IOException {
         try (var cluster = Cluster.create(List.of(ATHENS, BYZANTIUM, CYRENE), (peerIds, processParams) -> new GenerationVotingServer(peerIds, processParams))) {
-            assertEventually(cluster, ()->
-                    getProcess(cluster, ATHENS).isInitialised() && getProcess(cluster, BYZANTIUM).isInitialised() && getProcess(cluster, CYRENE).isInitialised());
+            waitUntilAllNodesInitialised(cluster);
 
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, GenerationVotingClient::new);
             
-            // Request to Athens
-            System.out.println("\n=== Request to ATHENS ===");
-            ListenableFuture<NextGenerationResponse> future1 = client.getNextGeneration(ATHENS);
-            assertEventually(cluster, () -> future1.isCompleted() && !future1.isFailed());
-            assertEquals(1, future1.getResult().generation());
+            // First Athens coordinates generation 1.
+            NextGenerationResponse response1 = cluster.tickUntilComplete(client.getNextGeneration(ATHENS));
+            assertEquals(1, response1.generation());
             
-            // Request to Byzantium
-            System.out.println("\n=== Request to BYZANTIUM ===");
-            ListenableFuture<NextGenerationResponse> future2 = client.getNextGeneration(BYZANTIUM);
-            assertEventually(cluster, () -> future2.isCompleted() && !future2.isFailed());
-            assertEquals(2, future2.getResult().generation());
+            // Then Byzantium coordinates generation 2.
+            NextGenerationResponse response2 = cluster.tickUntilComplete(client.getNextGeneration(BYZANTIUM));
+            assertEquals(2, response2.generation());
             
-            // Request to Cyrene
-            System.out.println("\n=== Request to CYRENE ===");
-            ListenableFuture<NextGenerationResponse> future3 = client.getNextGeneration(CYRENE);
-            assertEventually(cluster, () -> future3.isCompleted() && !future3.isFailed());
-            assertEquals(3, future3.getResult().generation());
+            // Finally Cyrene coordinates generation 3.
+            NextGenerationResponse response3 = cluster.tickUntilComplete(client.getNextGeneration(CYRENE));
+            assertEquals(3, response3.generation());
             
             // Verify all nodes have the same final generation
-            GenerationVotingServer athensServer = getServer(cluster, ATHENS);
-            GenerationVotingServer byzantiumServer = getServer(cluster, BYZANTIUM);
-            GenerationVotingServer cyreneServer = getServer(cluster, CYRENE);
-            
-            assertEquals(3, athensServer.getGeneration());
-            assertEquals(3, byzantiumServer.getGeneration());
-            assertEquals(3, cyreneServer.getGeneration());
-            
-            System.out.println("\n=== SUCCESS: Multiple coordinators work correctly ===");
+            assertGenerationOnAllNodes(cluster, 3);
         }
     }
     
     @Test
-    @DisplayName("Concurrent Requests: Multiple simultaneous requests maintain monotonicity")
-    void testConcurrentRequests() throws IOException {
+    @DisplayName("Overlapping Requests: Newer request supersedes older in-flight elections")
+    void testNewerRequestSupersedesOlderInFlightElection() throws IOException {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
                 .useRocksDBStorage()
+                .withRequestTimeoutTicks(8000)
                 .build((peerIds, processParams) -> new GenerationVotingServer(peerIds, processParams))
                 .start()) {
-
-            assertEventually(cluster, ()->
-                    getProcess(cluster, ATHENS).isInitialised() && getProcess(cluster, BYZANTIUM).isInitialised() && getProcess(cluster, CYRENE).isInitialised());
+            waitUntilAllNodesInitialised(cluster);
 
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, GenerationVotingClient::new);
             
-            // Send multiple concurrent requests to same coordinator
-            // (This tests retry mechanism when elections conflict)
-            System.out.println("\n=== Sending 5 concurrent requests to ATHENS ===");
+            // Queue three requests before the simulated cluster advances.
+            // This coordinator handles only one active election at a time, so
+            // newer requests supersede older in-flight elections.
             ListenableFuture<NextGenerationResponse> future1 = client.getNextGeneration(ATHENS);
-            
-            // Small delay between requests to avoid overwhelming the system
-            for (int i = 0; i < 10; i++) {
-                cluster.tick();
-            }
-            
             ListenableFuture<NextGenerationResponse> future2 = client.getNextGeneration(ATHENS);
-            for (int i = 0; i < 10; i++) {
-                cluster.tick();
-            }
-            
             ListenableFuture<NextGenerationResponse> future3 = client.getNextGeneration(ATHENS);
-            for (int i = 0; i < 10; i++) {
-                cluster.tick();
-            }
+
+            assertFalse(future1.isCompleted(), "First request should still be in flight before ticking");
+            assertFalse(future2.isCompleted(), "Second request should still be in flight before ticking");
+            assertFalse(future3.isCompleted(), "Third request should still be in flight before ticking");
             
             // Wait for all to complete
-            assertEventually(cluster, () -> 
-                future1.isCompleted() && future2.isCompleted() && future3.isCompleted()
+            assertEventually(cluster, () ->
+                !future1.isPending() && !future2.isPending() && !future3.isPending()
             );
             
-            // Get all results
-            long gen1 = future1.getResult().generation();
-            long gen2 = future2.getResult().generation();
-            long gen3 = future3.getResult().generation();
-            
-            System.out.println("Generated: " + gen1 + ", " + gen2 + ", " + gen3);
-            
-            // Verify all succeeded (non-zero)
-            assert gen1 > 0 : "Generation 1 should be positive";
-            assert gen2 > 0 : "Generation 2 should be positive";
-            assert gen3 > 0 : "Generation 3 should be positive";
-            
-            // Verify all are unique
-            var uniqueGenerations = java.util.Set.of(gen1, gen2, gen3);
-            assertEquals(3, uniqueGenerations.size(), "All generations should be unique");
-            
-            // Verify monotonic (1, 2, 3)
-            assertEquals(1, gen1, "First should be 1");
-            assertEquals(2, gen2, "Second should be 2");
-            assertEquals(3, gen3, "Third should be 3");
-            
-            System.out.println("\n=== SUCCESS: Concurrent requests maintain monotonicity and uniqueness ===");
+            List<ListenableFuture<NextGenerationResponse>> futures = List.of(future1, future2, future3);
+
+            // Only one overlapping request should complete successfully.
+            // The other two are superseded by newer elections and fail or time out.
+            List<ListenableFuture<NextGenerationResponse>> successfulFutures = successfulFuturesFrom(futures);
+            List<ListenableFuture<NextGenerationResponse>> failedFutures = failedFuturesFrom(futures);
+
+            assertEquals(2, failedFutures.size(), "Two overlapping requests should fail as obsolete");
+            assertEquals(1, successfulFutures.size(), "Only one overlapping request should complete successfully");
+
+            long winningGeneration = successfulFutures.getFirst().getResult().generation();
+            assertGenerationOnAllNodes(cluster, winningGeneration);
         }
     }
-    
-    /**
-     * Helper to get server instance from cluster.
-     */
-    private static GenerationVotingServer getServer(Cluster cluster, ProcessId id) {
-        return getProcess(cluster, id);
+
+    private static void waitUntilAllNodesInitialised(Cluster cluster) {
+        assertEventually(cluster, () ->
+                cluster.<GenerationVotingServer>getNode(ATHENS).isInitialised()
+                        && cluster.<GenerationVotingServer>getNode(BYZANTIUM).isInitialised()
+                        && cluster.<GenerationVotingServer>getNode(CYRENE).isInitialised());
+    }
+
+    private static void assertGenerationOnAllNodes(Cluster cluster, long expectedGeneration) {
+        assertEquals(expectedGeneration, cluster.<GenerationVotingServer>getNode(ATHENS).getGeneration());
+        assertEquals(expectedGeneration, cluster.<GenerationVotingServer>getNode(BYZANTIUM).getGeneration());
+        assertEquals(expectedGeneration, cluster.<GenerationVotingServer>getNode(CYRENE).getGeneration());
+    }
+
+    private static List<ListenableFuture<NextGenerationResponse>> successfulFuturesFrom(
+            List<ListenableFuture<NextGenerationResponse>> futures
+    ) {
+        return futures.stream()
+                .filter(ListenableFuture::isCompleted)
+                .toList();
+    }
+
+    private static List<ListenableFuture<NextGenerationResponse>> failedFuturesFrom(
+            List<ListenableFuture<NextGenerationResponse>> futures
+    ) {
+        return futures.stream()
+                .filter(ListenableFuture::isFailed)
+                .toList();
     }
 }
-

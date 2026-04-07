@@ -1,4 +1,4 @@
-package com.distribpatterns.generation;
+package com.distribpatterns.generation.messages;
 
 import com.tickloom.messaging.MessageType;
 

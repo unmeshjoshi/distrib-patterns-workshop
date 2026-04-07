@@ -1,4 +1,4 @@
-package com.distribpatterns.generation;
+package com.distribpatterns.generation.messages;
 
 /**
  * Response containing the elected generation number.

@@ -1,5 +1,8 @@
 package com.distribpatterns.generation;
 
+import com.distribpatterns.generation.messages.GenerationMessageTypes;
+import com.distribpatterns.generation.messages.NextGenerationRequest;
+import com.distribpatterns.generation.messages.NextGenerationResponse;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.algorithms.replication.ClusterClient;
