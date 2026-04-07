@@ -1,5 +1,7 @@
 package com.distribpatterns.multipaxos;
 
+import com.distribpatterns.multipaxos.messages.Operation;
+
 import java.util.Optional;
 
 /**

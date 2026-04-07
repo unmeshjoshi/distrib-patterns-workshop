@@ -1,4 +1,4 @@
-package com.distribpatterns.multipaxos;
+package com.distribpatterns.multipaxos.messages;
 
 /**
  * Phase 1: Leader proposes value at log index.

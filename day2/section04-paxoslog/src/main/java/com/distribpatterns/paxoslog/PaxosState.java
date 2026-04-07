@@ -1,5 +1,7 @@
 package com.distribpatterns.paxoslog;
 
+import com.distribpatterns.paxoslog.messages.Operation;
+
 import java.util.Optional;
 
 /**

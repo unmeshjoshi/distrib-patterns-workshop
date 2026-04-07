@@ -1,4 +1,6 @@
-package com.distribpatterns.multipaxos;
+package com.distribpatterns.multipaxos.messages;
+
+import com.distribpatterns.multipaxos.PaxosState;
 
 import java.util.Map;
 

@@ -1,4 +1,4 @@
-package com.distribpatterns.paxoslog;
+package com.distribpatterns.paxoslog.messages;
 
 /**
  * No-op operation used for reads (to ensure we see committed state).

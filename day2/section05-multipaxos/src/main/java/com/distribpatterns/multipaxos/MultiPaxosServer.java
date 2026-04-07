@@ -1,5 +1,6 @@
 package com.distribpatterns.multipaxos;
 
+import com.distribpatterns.multipaxos.messages.*;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
@@ -46,15 +47,11 @@ public class MultiPaxosServer extends Replica {
     // Log index counter
     private final AtomicInteger logIndex = new AtomicInteger(0);
     
-    // Server ID for breaking ties
-    private final int serverId;
-    
     // No-op operation for reads
     private static final NoOpOperation NO_OP = new NoOpOperation();
-    
+
     public MultiPaxosServer(List<ProcessId> allNodes, ProcessParams processParams) {
         super(allNodes, processParams);
-        this.serverId = id.toString().hashCode();
     }
     
     @Override
@@ -83,73 +80,110 @@ public class MultiPaxosServer extends Replica {
     private void handleClientExecuteRequest(Message clientMessage) {
         ExecuteCommandRequest request = deserializePayload(clientMessage.payload(), ExecuteCommandRequest.class);
         
-        if (role != ServerRole.Leader) {
-            System.out.println(id + ": Rejecting client request - not leader (role=" + role + ")");
-            send(createMessage(clientMessage.source(), clientMessage.correlationId(),
-                new ExecuteCommandResponse(false, "Not leader"), MultiPaxosMessageTypes.CLIENT_EXECUTE_RESPONSE));
+        if (rejectExecuteRequestIfNotLeader(clientMessage)) {
             return;
         }
         
-        String clientKey = "client_" + clientMessage.correlationId();
+        String clientKey = clientKeyFor(clientMessage);
         
         System.out.println(id + ": Leader received execute request for operation: " + request.operation());
-        
-        // Store client callback
-        waitingList.add(clientKey, new RequestCallback<Object>() {
-            @Override
-            public void onResponse(Object response, ProcessId fromNode) {
-                var responseMsg = createMessage(clientMessage.source(), clientMessage.correlationId(),
-                    response, MultiPaxosMessageTypes.CLIENT_EXECUTE_RESPONSE);
-                send(responseMsg);
-            }
-            
-            @Override
-            public void onError(Exception error) {
-                send(createMessage(clientMessage.source(), clientMessage.correlationId(),
-                    new ExecuteCommandResponse(false, null), MultiPaxosMessageTypes.CLIENT_EXECUTE_RESPONSE));
-            }
-        });
-        
-        // Append to log
+
+        registerExecuteResponseCallback(clientMessage, clientKey);
         appendToLog(request.operation(), clientKey);
     }
     
     private void handleClientGetRequest(Message clientMessage) {
         GetValueRequest request = deserializePayload(clientMessage.payload(), GetValueRequest.class);
         
-        if (role != ServerRole.Leader) {
-            System.out.println(id + ": Rejecting client get request - not leader");
-            send(createMessage(clientMessage.source(), clientMessage.correlationId(),
-                new GetValueResponse(null), MultiPaxosMessageTypes.CLIENT_GET_RESPONSE));
+        if (rejectGetRequestIfNotLeader(clientMessage)) {
             return;
         }
         
-        String clientKey = "client_" + clientMessage.correlationId();
+        String clientKey = clientKeyFor(clientMessage);
         
         System.out.println(id + ": Leader received get request for key: " + request.key());
-        
-        // Store client callback
-        waitingList.add(clientKey, new RequestCallback<Object>() {
-            @Override
-            public void onResponse(Object response, ProcessId fromNode) {
-                // After no-op commits, read from KV store
-                String value = kvStore.get(request.key());
-                var responseMsg = createMessage(clientMessage.source(), clientMessage.correlationId(),
-                    new GetValueResponse(value), MultiPaxosMessageTypes.CLIENT_GET_RESPONSE);
-                send(responseMsg);
-            }
-            
-            @Override
-            public void onError(Exception error) {
-                send(createMessage(clientMessage.source(), clientMessage.correlationId(),
-                    new GetValueResponse(null), MultiPaxosMessageTypes.CLIENT_GET_RESPONSE));
-            }
-        });
-        
-        // Execute a no-op to ensure we see committed state
+
+        registerGetResponseCallback(clientMessage, request.key(), clientKey);
         appendToLog(NO_OP, clientKey);
     }
+
+    private boolean rejectExecuteRequestIfNotLeader(Message clientMessage) {
+        if (role == ServerRole.Leader) {
+            return false;
+        }
+
+        System.out.println(id + ": Rejecting client request - not leader (role=" + role + ")");
+        sendClientResponse(
+            clientMessage,
+            new ExecuteCommandResponse(false, "Not leader"),
+            MultiPaxosMessageTypes.CLIENT_EXECUTE_RESPONSE
+        );
+        return true;
+    }
+
+    private boolean rejectGetRequestIfNotLeader(Message clientMessage) {
+        if (role == ServerRole.Leader) {
+            return false;
+        }
+
+        System.out.println(id + ": Rejecting client get request - not leader");
+        sendClientResponse(
+            clientMessage,
+            new GetValueResponse(null),
+            MultiPaxosMessageTypes.CLIENT_GET_RESPONSE
+        );
+        return true;
+    }
+
+    private String clientKeyFor(Message clientMessage) {
+        return "client_" + clientMessage.correlationId();
+    }
+
+    private void registerExecuteResponseCallback(Message clientMessage, String clientKey) {
+        waitingList.add(clientKey, new RequestCallback<>() {
+            @Override
+            public void onResponse(Object response, ProcessId fromNode) {
+                sendClientResponse(clientMessage, response, MultiPaxosMessageTypes.CLIENT_EXECUTE_RESPONSE);
+            }
+
+            @Override
+            public void onError(Exception error) {
+                sendClientResponse(
+                    clientMessage,
+                    new ExecuteCommandResponse(false, null),
+                    MultiPaxosMessageTypes.CLIENT_EXECUTE_RESPONSE
+                );
+            }
+        });
+    }
+
+    private void registerGetResponseCallback(Message clientMessage, String key, String clientKey) {
+        waitingList.add(clientKey, new RequestCallback<>() {
+            @Override
+            public void onResponse(Object response, ProcessId fromNode) {
+                sendClientResponse(
+                    clientMessage,
+                    new GetValueResponse(kvStore.get(key)),
+                    MultiPaxosMessageTypes.CLIENT_GET_RESPONSE
+                );
+            }
+
+            @Override
+            public void onError(Exception error) {
+                sendClientResponse(
+                    clientMessage,
+                    new GetValueResponse(null),
+                    MultiPaxosMessageTypes.CLIENT_GET_RESPONSE
+                );
+            }
+        });
+    }
+
+    private void sendClientResponse(Message clientMessage, Object response, MessageType responseType) {
+        send(createMessage(clientMessage.source(), clientMessage.correlationId(), response, responseType));
+    }
     
+    // ========== PROPOSER ROLE ==========
     // ========== LOG APPEND (OPTIMIZED - NO PREPARE!) ==========
     
     private void appendToLog(Operation operation, String clientKey) {
@@ -164,120 +198,81 @@ public class MultiPaxosServer extends Replica {
     
     private void startProposePhase(int logIndex, int generation, Operation operation, String clientKey) {
         System.out.println(id + ": Phase 1 - PROPOSE " + operation + " for index " + logIndex);
-        
-        var quorumCallback = new AsyncQuorumCallback<ProposeResponse>(
-            getAllNodes().size(),
-            response -> response != null && response.accepted()
-        );
-        
-        quorumCallback
-            .onSuccess(responses -> {
-                System.out.println(id + ": PROPOSE quorum reached for index " + logIndex);
-                startCommitPhase(logIndex, generation, operation, clientKey);
-            })
-            .onFailure(error -> {
-                System.out.println(id + ": PROPOSE quorum failed for index " + logIndex);
-                waitingList.handleResponse(clientKey, new ExecuteCommandResponse(false, null), id);
-            });
-        
+
+        var quorumCallback = proposeQuorumCallbackFor(logIndex, generation, operation, clientKey);
         ProposeRequest proposeReq = new ProposeRequest(logIndex, generation, operation);
         broadcastToAllReplicas(quorumCallback, (node, correlationId) ->
             createMessage(node, correlationId, proposeReq, MultiPaxosMessageTypes.PROPOSE_REQUEST)
         );
     }
-    
-    private void handleProposeRequest(Message message) {
-        ProposeRequest request = deserializePayload(message.payload(), ProposeRequest.class);
-        int logIndex = request.logIndex();
-        int generation = request.generation();
-        Operation value = request.value();
-        
-        // Accept if generation >= promisedGeneration
-        boolean accepted = false;
-        if (generation >= promisedGeneration) {
-            promisedGeneration = generation; // Update if higher
-            var paxosState = getOrCreatePaxosState(logIndex);
-            var newState = paxosState.accept(generation, value);
-            paxosLog.put(logIndex, newState);
-            accepted = true;
-            System.out.println(id + ": ACCEPTED proposal for index " + logIndex);
-        } else {
-            System.out.println(id + ": REJECTED proposal for index " + logIndex + 
-                             " (gen=" + generation + " < promised=" + promisedGeneration + ")");
-        }
-        
-        send(createMessage(message.source(), message.correlationId(),
-            new ProposeResponse(logIndex, accepted), MultiPaxosMessageTypes.PROPOSE_RESPONSE));
+
+    private AsyncQuorumCallback<ProposeResponse> proposeQuorumCallbackFor(int logIndex,
+                                                                          int generation,
+                                                                          Operation operation,
+                                                                          String clientKey) {
+        var quorumCallback = new AsyncQuorumCallback<ProposeResponse>(
+            getAllNodes().size(),
+            response -> response != null && response.accepted()
+        );
+
+        quorumCallback
+            .onSuccess(responses -> {
+                System.out.println(id + ": PROPOSE quorum reached for index " + logIndex);
+                startCommitPhase(logIndex, generation, operation, clientKey);
+            })
+            .onFailure(error -> failClientCommand(clientKey, "PROPOSE quorum failed for index " + logIndex));
+
+        return quorumCallback;
     }
-    
-    private void handleProposeResponse(Message message) {
-        ProposeResponse response = deserializePayload(message.payload(), ProposeResponse.class);
-        waitingList.handleResponse(message.correlationId(), response, message.source());
+
+    private void failClientCommand(String clientKey, String reason) {
+        System.out.println(id + ": " + reason);
+        waitingList.handleResponse(clientKey, new ExecuteCommandResponse(false, null), id);
     }
     
     // ========== PHASE 2: COMMIT/LEARN ==========
     
     private void startCommitPhase(int logIndex, int generation, Operation operation, String clientKey) {
         System.out.println(id + ": Phase 2 - COMMIT " + operation + " for index " + logIndex);
-        
-        var quorumCallback = new AsyncQuorumCallback<CommitResponse>(
-            getAllNodes().size(),
-            response -> response != null && response.success()
-        );
-        
-        quorumCallback
-            .onSuccess(responses -> {
-                System.out.println(id + ": COMMIT quorum reached for index " + logIndex);
-            })
-            .onFailure(error -> {
-                System.out.println(id + ": COMMIT quorum failed for index " + logIndex);
-            });
-        
-        // Track which client request this is for
-        String indexClientKey = "index_" + logIndex + "_client";
-        waitingList.add(indexClientKey, new RequestCallback<Object>() {
-            @Override
-            public void onResponse(Object response, ProcessId fromNode) {
-                waitingList.handleResponse(clientKey, response, fromNode);
-            }
-            
-            @Override
-            public void onError(Exception error) {
-                waitingList.handleResponse(clientKey, new ExecuteCommandResponse(false, null), id);
-            }
-        });
-        
+
+        registerClientForCommittedIndex(logIndex, clientKey);
+
+        var quorumCallback = commitQuorumCallbackFor(logIndex);
         CommitRequest commitReq = new CommitRequest(logIndex, generation, operation);
         broadcastToAllReplicas(quorumCallback, (node, correlationId) ->
             createMessage(node, correlationId, commitReq, MultiPaxosMessageTypes.COMMIT_REQUEST)
         );
     }
-    
-    private void handleCommitRequest(Message message) {
-        CommitRequest request = deserializePayload(message.payload(), CommitRequest.class);
-        int logIndex = request.logIndex();
-        int generation = request.generation();
-        Operation value = request.value();
-        
-        System.out.println(id + ": Received COMMIT for index " + logIndex);
-        
-        // Accept commit (already accepted during propose)
-        var paxosState = getOrCreatePaxosState(logIndex);
-        var newState = paxosState.commit(generation, value);
-        paxosLog.put(logIndex, newState);
-        
-        System.out.println(id + ": COMMITTED index " + logIndex);
-        
-        // Try to execute this entry and any subsequent committed entries
-        tryExecuteLogEntries();
-        
-        send(createMessage(message.source(), message.correlationId(),
-            new CommitResponse(true), MultiPaxosMessageTypes.COMMIT_RESPONSE));
+
+    private AsyncQuorumCallback<CommitResponse> commitQuorumCallbackFor(int logIndex) {
+        var quorumCallback = new AsyncQuorumCallback<CommitResponse>(
+            getAllNodes().size(),
+            response -> response != null && response.success()
+        );
+
+        quorumCallback
+            .onSuccess(responses -> System.out.println(id + ": COMMIT quorum reached for index " + logIndex))
+            .onFailure(error -> System.out.println(id + ": COMMIT quorum failed for index " + logIndex));
+
+        return quorumCallback;
     }
-    
-    private void handleCommitResponse(Message message) {
-        CommitResponse response = deserializePayload(message.payload(), CommitResponse.class);
-        waitingList.handleResponse(message.correlationId(), response, message.source());
+
+    private void registerClientForCommittedIndex(int logIndex, String clientKey) {
+        waitingList.add(indexClientKeyFor(logIndex), new RequestCallback<>() {
+            @Override
+            public void onResponse(Object response, ProcessId fromNode) {
+                waitingList.handleResponse(clientKey, response, fromNode);
+            }
+
+            @Override
+            public void onError(Exception error) {
+                waitingList.handleResponse(clientKey, new ExecuteCommandResponse(false, null), id);
+            }
+        });
+    }
+
+    private String indexClientKeyFor(int logIndex) {
+        return "index_" + logIndex + "_client";
     }
     
     // ========== LEADER ELECTION ==========
@@ -292,38 +287,127 @@ public class MultiPaxosServer extends Replica {
     
     private void sendFullLogPrepare(int generation) {
         System.out.println(id + ": Sending FULL_LOG_PREPARE with generation " + generation);
-        
-        var quorumCallback = new AsyncQuorumCallback<FullLogPrepareResponse>(
-            getAllNodes().size(),
-            response -> response != null && response.promised()
-        );
-        
-        quorumCallback
-            .onSuccess(responses -> {
-                System.out.println(id + ": Election succeeded, became LEADER with generation " + generation);
-                
-                // Merge logs from all responses
-                for (FullLogPrepareResponse response : responses.values()) {
-                    mergeLog(response);
-                }
-                
-                // Become leader
-                promisedGeneration = generation;
-                role = ServerRole.Leader;
-                
-                // Complete uncommitted entries
-                completeUncommittedEntries(generation);
-            })
-            .onFailure(error -> {
-                System.out.println(id + ": Election failed: " + error.getMessage());
-                role = ServerRole.Follower;
-            });
-        
+
+        var quorumCallback = fullLogPrepareQuorumCallbackFor(generation);
         FullLogPrepareRequest prepareReq = new FullLogPrepareRequest(generation);
         broadcastToAllReplicas(quorumCallback, (node, correlationId) ->
             createMessage(node, correlationId, prepareReq, MultiPaxosMessageTypes.FULL_LOG_PREPARE_REQUEST)
         );
     }
+
+    private AsyncQuorumCallback<FullLogPrepareResponse> fullLogPrepareQuorumCallbackFor(int generation) {
+        var quorumCallback = new AsyncQuorumCallback<FullLogPrepareResponse>(
+            getAllNodes().size(),
+            response -> response != null && response.promised()
+        );
+
+        quorumCallback
+            .onSuccess(responses -> becomeLeaderForGeneration(generation, responses))
+            .onFailure(error -> failLeaderElection(error));
+
+        return quorumCallback;
+    }
+
+    private void becomeLeaderForGeneration(int generation, Map<ProcessId, FullLogPrepareResponse> responses) {
+        System.out.println(id + ": Election succeeded, became LEADER with generation " + generation);
+        responses.values().forEach(this::mergeLog);
+        promisedGeneration = generation;
+        role = ServerRole.Leader;
+        completeUncommittedEntries(generation);
+    }
+
+    private void failLeaderElection(Throwable error) {
+        System.out.println(id + ": Election failed: " + error.getMessage());
+        role = ServerRole.Follower;
+    }
+
+    // ========== ACCEPTOR / LEARNER ROLE ==========
+    // ========== PROPOSE / ACCEPT ==========
+
+    private void handleProposeRequest(Message message) {
+        ProposeRequest request = deserializePayload(message.payload(), ProposeRequest.class);
+        int logIndex = request.logIndex();
+        int generation = request.generation();
+        Operation value = request.value();
+
+        if (canAcceptProposal(generation)) {
+            acceptProposal(message, logIndex, generation, value);
+            return;
+        }
+
+        rejectProposal(message, logIndex, generation);
+    }
+
+    private boolean canAcceptProposal(int generation) {
+        return generation >= promisedGeneration;
+    }
+
+    private void acceptProposal(Message message, int logIndex, int generation, Operation value) {
+        promisedGeneration = generation;
+        var paxosState = getOrCreatePaxosState(logIndex);
+        var newState = paxosState.accept(generation, value);
+        paxosLog.put(logIndex, newState);
+        System.out.println(id + ": ACCEPTED proposal for index " + logIndex);
+        sendProposeResponse(message, logIndex, true);
+    }
+
+    private void rejectProposal(Message message, int logIndex, int generation) {
+        System.out.println(id + ": REJECTED proposal for index " + logIndex +
+                         " (gen=" + generation + " < promised=" + promisedGeneration + ")");
+        sendProposeResponse(message, logIndex, false);
+    }
+
+    private void sendProposeResponse(Message requestMessage, int logIndex, boolean accepted) {
+        send(createMessage(
+            requestMessage.source(),
+            requestMessage.correlationId(),
+            new ProposeResponse(logIndex, accepted),
+            MultiPaxosMessageTypes.PROPOSE_RESPONSE
+        ));
+    }
+
+    private void handleProposeResponse(Message message) {
+        ProposeResponse response = deserializePayload(message.payload(), ProposeResponse.class);
+        waitingList.handleResponse(message.correlationId(), response, message.source());
+    }
+
+    // ========== COMMIT / LEARN ==========
+
+    private void handleCommitRequest(Message message) {
+        CommitRequest request = deserializePayload(message.payload(), CommitRequest.class);
+        int logIndex = request.logIndex();
+        int generation = request.generation();
+        Operation value = request.value();
+
+        System.out.println(id + ": Received COMMIT for index " + logIndex);
+        commitValue(message, logIndex, generation, value);
+    }
+
+    private void commitValue(Message message, int logIndex, int generation, Operation value) {
+        var paxosState = getOrCreatePaxosState(logIndex);
+        var newState = paxosState.commit(generation, value);
+        paxosLog.put(logIndex, newState);
+
+        System.out.println(id + ": COMMITTED index " + logIndex);
+        tryExecuteLogEntries();
+        sendCommitResponse(message, true);
+    }
+
+    private void sendCommitResponse(Message requestMessage, boolean success) {
+        send(createMessage(
+            requestMessage.source(),
+            requestMessage.correlationId(),
+            new CommitResponse(success),
+            MultiPaxosMessageTypes.COMMIT_RESPONSE
+        ));
+    }
+
+    private void handleCommitResponse(Message message) {
+        CommitResponse response = deserializePayload(message.payload(), CommitResponse.class);
+        waitingList.handleResponse(message.correlationId(), response, message.source());
+    }
+
+    // ========== FULL LOG PREPARE ==========
     
     private void handleFullLogPrepareRequest(Message message) {
         FullLogPrepareRequest request = deserializePayload(message.payload(), FullLogPrepareRequest.class);
@@ -332,23 +416,36 @@ public class MultiPaxosServer extends Replica {
         System.out.println(id + ": Received FULL_LOG_PREPARE with generation " + generation);
         
         if (generation > promisedGeneration) {
-            // Accept: update promised generation and become follower
-            promisedGeneration = generation;
-            role = ServerRole.Follower;
-            
-            // Send back all uncommitted entries
-            Map<Integer, PaxosState> uncommitted = getUncommittedEntries();
-            System.out.println(id + ": PROMISED generation " + generation + ", becoming FOLLOWER, " +
-                             "sending " + uncommitted.size() + " uncommitted entries");
-            
-            send(createMessage(message.source(), message.correlationId(),
-                FullLogPrepareResponse.accepted(uncommitted), MultiPaxosMessageTypes.FULL_LOG_PREPARE_RESPONSE));
-        } else {
-            // Reject
-            System.out.println(id + ": REJECTED generation " + generation + " (have " + promisedGeneration + ")");
-            send(createMessage(message.source(), message.correlationId(),
-                FullLogPrepareResponse.rejected(), MultiPaxosMessageTypes.FULL_LOG_PREPARE_RESPONSE));
+            promiseLeadershipGeneration(message, generation);
+            return;
         }
+
+        rejectLeadershipGeneration(message, generation);
+    }
+
+    private void promiseLeadershipGeneration(Message message, int generation) {
+        promisedGeneration = generation;
+        role = ServerRole.Follower;
+
+        Map<Integer, PaxosState> uncommitted = getUncommittedEntries();
+        System.out.println(id + ": PROMISED generation " + generation + ", becoming FOLLOWER, " +
+                         "sending " + uncommitted.size() + " uncommitted entries");
+
+        sendFullLogPrepareResponse(message, FullLogPrepareResponse.accepted(uncommitted));
+    }
+
+    private void rejectLeadershipGeneration(Message message, int generation) {
+        System.out.println(id + ": REJECTED generation " + generation + " (have " + promisedGeneration + ")");
+        sendFullLogPrepareResponse(message, FullLogPrepareResponse.rejected());
+    }
+
+    private void sendFullLogPrepareResponse(Message requestMessage, FullLogPrepareResponse response) {
+        send(createMessage(
+            requestMessage.source(),
+            requestMessage.correlationId(),
+            response,
+            MultiPaxosMessageTypes.FULL_LOG_PREPARE_RESPONSE
+        ));
     }
     
     private void handleFullLogPrepareResponse(Message message) {
@@ -487,4 +584,3 @@ public class MultiPaxosServer extends Replica {
         return highWaterMark;
     }
 }
-

@@ -1,4 +1,4 @@
-package com.distribpatterns.multipaxos;
+package com.distribpatterns.multipaxos.messages;
 
 /**
  * Response to GetValueRequest.

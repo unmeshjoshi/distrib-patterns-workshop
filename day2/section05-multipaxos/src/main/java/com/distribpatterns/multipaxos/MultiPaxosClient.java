@@ -1,5 +1,6 @@
 package com.distribpatterns.multipaxos;
 
+import com.distribpatterns.multipaxos.messages.*;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.algorithms.replication.ClusterClient;

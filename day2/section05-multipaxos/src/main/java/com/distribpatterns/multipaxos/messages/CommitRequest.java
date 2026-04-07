@@ -1,4 +1,4 @@
-package com.distribpatterns.multipaxos;
+package com.distribpatterns.multipaxos.messages;
 
 /**
  * Phase 2: Leader tells followers to commit value at log index.

@@ -1,7 +1,9 @@
 package com.distribpatterns.paxoslog;
 
+import com.distribpatterns.paxoslog.messages.CompareAndSwapOperation;
 import com.distribpatterns.paxoslog.messages.ExecuteCommandResponse;
 import com.distribpatterns.paxoslog.messages.GetValueResponse;
+import com.distribpatterns.paxoslog.messages.SetValueOperation;
 import com.tickloom.ProcessId;
 import com.tickloom.testkit.Cluster;
 import org.junit.jupiter.api.DisplayName;

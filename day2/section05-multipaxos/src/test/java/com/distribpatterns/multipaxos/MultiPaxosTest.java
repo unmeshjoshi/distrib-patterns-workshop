@@ -1,7 +1,9 @@
 package com.distribpatterns.multipaxos;
 
+import com.distribpatterns.multipaxos.messages.ExecuteCommandResponse;
+import com.distribpatterns.multipaxos.messages.GetValueResponse;
+import com.distribpatterns.multipaxos.messages.SetValueOperation;
 import com.tickloom.ProcessId;
-import com.tickloom.future.ListenableFuture;
 import com.tickloom.testkit.Cluster;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -9,7 +11,6 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.util.List;
 
-import static com.tickloom.testkit.ClusterAssertions.assertEventually;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -24,12 +25,12 @@ public class MultiPaxosTest {
     
     // Client
     private static final ProcessId CLIENT = ProcessId.of("client");
+    private static final String TITLE_KEY = "title";
+    private static final String AUTHOR_KEY = "author";
     
     @Test
     @DisplayName("Leader Election: Single node becomes leader")
     void testLeaderElection() throws IOException {
-        System.out.println("\n=== TEST: Leader Election ===\n");
-        
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
@@ -38,22 +39,16 @@ public class MultiPaxosTest {
             
             var athens = getServer(cluster, ATHENS);
             
-            // WHEN: Athens triggers leader election
             athens.startLeaderElection();
             
-            // THEN: Athens should become leader
-            assertEventually(cluster, () -> athens.isLeader());
+            cluster.tickUntil(athens::isLeader);
             assertEquals(ServerRole.Leader, athens.getRole());
-            
-            System.out.println("\n=== Test passed: Athens became leader ===\n");
         }
     }
     
     @Test
     @DisplayName("Leader Replication: Leader can replicate values")
     void testLeaderCanReplicateValues() throws IOException {
-        System.out.println("\n=== TEST: Leader Replication ===\n");
-        
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
@@ -63,38 +58,23 @@ public class MultiPaxosTest {
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, MultiPaxosClient::new);
             var athens = getServer(cluster, ATHENS);
             
-            // GIVEN: Athens is the leader
             athens.startLeaderElection();
-            assertEventually(cluster, () -> athens.isLeader());
+            cluster.tickUntil(athens::isLeader);
             
-            // WHEN: Client sends SetValue operation
-            ListenableFuture<ExecuteCommandResponse> future = client.execute(ATHENS,
-                new SetValueOperation("title", "Microservices"));
-            
-            // THEN: Operation should succeed
-            assertEventually(cluster, () -> future.isCompleted() && !future.isFailed());
-            
-            var response = future.getResult();
+            ExecuteCommandResponse response = cluster.tickUntilComplete(client.execute(
+                ATHENS,
+                new SetValueOperation(TITLE_KEY, "Microservices")
+            ));
             assertTrue(response.success(), "Operation should succeed");
             assertEquals("Microservices", response.result());
             
-            // AND: All nodes should have the value
-            var byzantium = getServer(cluster, BYZANTIUM);
-            var cyrene = getServer(cluster, CYRENE);
-            
-            assertEquals("Microservices", athens.getValue("title"));
-            assertEquals("Microservices", byzantium.getValue("title"));
-            assertEquals("Microservices", cyrene.getValue("title"));
-            
-            System.out.println("\n=== Test passed: Leader replicated value ===\n");
+            assertValueOnAllReplicas(cluster, TITLE_KEY, "Microservices");
         }
     }
     
     @Test
     @DisplayName("Multiple Operations: Sequential consistency")
     void testMultipleOperations() throws IOException {
-        System.out.println("\n=== TEST: Multiple Operations ===\n");
-        
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
@@ -104,39 +84,30 @@ public class MultiPaxosTest {
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, MultiPaxosClient::new);
             var athens = getServer(cluster, ATHENS);
             
-            // GIVEN: Athens is the leader
             athens.startLeaderElection();
-            assertEventually(cluster, () -> athens.isLeader());
+            cluster.tickUntil(athens::isLeader);
             
-            // WHEN: Multiple operations are executed
-            ListenableFuture<ExecuteCommandResponse> future1 = client.execute(ATHENS,
-                new SetValueOperation("title", "Microservices"));
-            assertEventually(cluster, () -> future1.isCompleted() && !future1.isFailed());
+            ExecuteCommandResponse firstResponse = cluster.tickUntilComplete(client.execute(
+                ATHENS,
+                new SetValueOperation(TITLE_KEY, "Microservices")
+            ));
+            assertSuccessfulCommand(firstResponse);
             
-            ListenableFuture<ExecuteCommandResponse> future2 = client.execute(ATHENS,
-                new SetValueOperation("author", "Martin Fowler"));
-            assertEventually(cluster, () -> future2.isCompleted() && !future2.isFailed());
+            ExecuteCommandResponse secondResponse = cluster.tickUntilComplete(client.execute(
+                ATHENS,
+                new SetValueOperation(AUTHOR_KEY, "Martin Fowler")
+            ));
+            assertSuccessfulCommand(secondResponse);
             
-            // THEN: All operations should be replicated
-            var byzantium = getServer(cluster, BYZANTIUM);
-            var cyrene = getServer(cluster, CYRENE);
-            
-            assertEquals(2, athens.getPaxosLog().size());
-            assertEquals(2, byzantium.getPaxosLog().size());
-            assertEquals(2, cyrene.getPaxosLog().size());
-            
-            assertEquals("Microservices", athens.getValue("title"));
-            assertEquals("Martin Fowler", athens.getValue("author"));
-            
-            System.out.println("\n=== Test passed: Multiple operations ===\n");
+            assertLogSizeOnAllReplicas(cluster, 2);
+            assertValueOnAllReplicas(cluster, TITLE_KEY, "Microservices");
+            assertValueOnAllReplicas(cluster, AUTHOR_KEY, "Martin Fowler");
         }
     }
     
     @Test
     @DisplayName("Non-Leader Rejection: Followers reject client requests")
     void testNonLeaderRejectsRequests() throws IOException {
-        System.out.println("\n=== TEST: Non-Leader Rejection ===\n");
-        
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
@@ -145,32 +116,22 @@ public class MultiPaxosTest {
             
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, MultiPaxosClient::new);
             var athens = getServer(cluster, ATHENS);
-            var byzantium = getServer(cluster, BYZANTIUM);
             
-            // GIVEN: Athens is the leader
             athens.startLeaderElection();
-            assertEventually(cluster, () -> athens.isLeader());
+            cluster.tickUntil(athens::isLeader);
             
-            // WHEN: Client sends request to Byzantium (not leader)
-            ListenableFuture<ExecuteCommandResponse> future = client.execute(BYZANTIUM,
-                new SetValueOperation("title", "Microservices"));
-            
-            // THEN: Request should be rejected
-            assertEventually(cluster, () -> future.isCompleted());
-            
-            var response = future.getResult();
+            ExecuteCommandResponse response = cluster.tickUntilComplete(client.execute(
+                BYZANTIUM,
+                new SetValueOperation(TITLE_KEY, "Microservices")
+            ));
             assertFalse(response.success(), "Non-leader should reject requests");
             assertEquals("Not leader", response.result());
-            
-            System.out.println("\n=== Test passed: Non-leader rejection ===\n");
         }
     }
     
     @Test
     @DisplayName("Get Value: Read with no-op")
     void testGetValue() throws IOException {
-        System.out.println("\n=== TEST: Get Value ===\n");
-        
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
@@ -180,29 +141,39 @@ public class MultiPaxosTest {
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, MultiPaxosClient::new);
             var athens = getServer(cluster, ATHENS);
             
-            // GIVEN: Athens is the leader
             athens.startLeaderElection();
-            assertEventually(cluster, () -> athens.isLeader());
+            cluster.tickUntil(athens::isLeader);
             
-            // AND: A value is set
-            ListenableFuture<ExecuteCommandResponse> setFuture = client.execute(ATHENS,
-                new SetValueOperation("author", "Martin Fowler"));
-            assertEventually(cluster, () -> setFuture.isCompleted() && !setFuture.isFailed());
+            cluster.tickUntilComplete(client.execute(
+                ATHENS,
+                new SetValueOperation(AUTHOR_KEY, "Martin Fowler")
+            ));
             
-            // WHEN: Client gets the value
-            ListenableFuture<GetValueResponse> getFuture = client.getValue(ATHENS, "author");
-            assertEventually(cluster, () -> getFuture.isCompleted() && !getFuture.isFailed());
-            
-            // THEN: Value should be returned
-            var response = getFuture.getResult();
+            // Reads also go through Multi-Paxos by committing a no-op first.
+            // That guarantees the leader has applied earlier committed log entries
+            // before reading from its local state machine.
+            GetValueResponse response = cluster.tickUntilComplete(client.getValue(ATHENS, AUTHOR_KEY));
             assertEquals("Martin Fowler", response.value());
-            
-            System.out.println("\n=== Test passed: Get value ===\n");
         }
     }
     
     private static MultiPaxosServer getServer(Cluster cluster, ProcessId id) {
-        return (MultiPaxosServer) cluster.getProcess(id);
+        return cluster.getNode(id);
+    }
+
+    private static void assertSuccessfulCommand(ExecuteCommandResponse response) {
+        assertTrue(response.success(), "Command should succeed");
+    }
+
+    private static void assertValueOnAllReplicas(Cluster cluster, String key, String expectedValue) {
+        assertEquals(expectedValue, getServer(cluster, ATHENS).getValue(key));
+        assertEquals(expectedValue, getServer(cluster, BYZANTIUM).getValue(key));
+        assertEquals(expectedValue, getServer(cluster, CYRENE).getValue(key));
+    }
+
+    private static void assertLogSizeOnAllReplicas(Cluster cluster, int expectedLogSize) {
+        assertEquals(expectedLogSize, getServer(cluster, ATHENS).getPaxosLog().size());
+        assertEquals(expectedLogSize, getServer(cluster, BYZANTIUM).getPaxosLog().size());
+        assertEquals(expectedLogSize, getServer(cluster, CYRENE).getPaxosLog().size());
     }
 }
-

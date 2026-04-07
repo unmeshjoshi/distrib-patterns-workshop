@@ -1,4 +1,4 @@
-package com.distribpatterns.paxoslog;
+package com.distribpatterns.multipaxos.messages;
 
 /**
  * Operation to set a key-value pair in the store.

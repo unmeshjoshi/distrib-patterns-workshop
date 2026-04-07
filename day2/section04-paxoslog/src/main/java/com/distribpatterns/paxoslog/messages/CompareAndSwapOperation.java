@@ -1,4 +1,4 @@
-package com.distribpatterns.multipaxos;
+package com.distribpatterns.paxoslog.messages;
 
 /**
  * Atomic compare-and-swap operation.

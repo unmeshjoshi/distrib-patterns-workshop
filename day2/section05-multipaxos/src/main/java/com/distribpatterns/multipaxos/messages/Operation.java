@@ -1,4 +1,4 @@
-package com.distribpatterns.paxoslog;
+package com.distribpatterns.multipaxos.messages;
 
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
