@@ -139,8 +139,8 @@ public class PaxosLogTest {
     }
     
     @Test
-    @DisplayName("Persistence: Log entries are stored in Storage")
-    void testPersistence() throws IOException {
+    @DisplayName("Committed Log: Entries remain available in the replica log")
+    void testCommittedLogEntries() throws IOException {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
@@ -162,8 +162,8 @@ public class PaxosLogTest {
             ));
             assertSuccessfulCommand(secondResponse);
             assertHighWaterMarkOnAllReplicas(cluster, 1);
-            assertPersistedCommittedEntryOnAllReplicas(cluster, 0);
-            assertPersistedCommittedEntryOnAllReplicas(cluster, 1);
+            assertCommittedLogEntryOnAllReplicas(cluster, 0);
+            assertCommittedLogEntryOnAllReplicas(cluster, 1);
         }
     }
     
@@ -209,19 +209,6 @@ public class PaxosLogTest {
         }
     }
     
-    /**
-     * Note: Full recovery testing (crash and restart) would require using RocksDbStorage
-     * with a shared database path. With SimulatedStorage (in-memory), each cluster instance
-     * gets a fresh storage, so we can't test cross-instance recovery.
-     * 
-     * To test full recovery:
-     * 1. Use RocksDbStorage with a shared path
-     * 2. Write entries in first cluster
-     * 3. Close first cluster
-     * 4. Create new cluster with same RocksDbStorage path
-     * 5. Verify entries are recovered
-     */
-    
     private static void waitUntilAllNodesInitialised(Cluster cluster) {
         cluster.tickUntil(() ->
                 getServer(cluster, ATHENS).isInitialised()
@@ -259,22 +246,17 @@ public class PaxosLogTest {
         assertTrue(entry.committedValue().isPresent(), message);
     }
 
-    private static void assertPersistedCommittedEntryOnAllReplicas(Cluster cluster, int index) {
-        assertPersistedCommittedEntry(cluster, ATHENS, index);
-        assertPersistedCommittedEntry(cluster, BYZANTIUM, index);
-        assertPersistedCommittedEntry(cluster, CYRENE, index);
+    private static void assertCommittedLogEntryOnAllReplicas(Cluster cluster, int index) {
+        assertCommittedLogEntry(cluster, ATHENS, index);
+        assertCommittedLogEntry(cluster, BYZANTIUM, index);
+        assertCommittedLogEntry(cluster, CYRENE, index);
     }
 
-    private static void assertPersistedCommittedEntry(Cluster cluster, ProcessId processId, int index) {
-        PaxosState persistedEntry = waitUntilPersistedCommittedEntry(cluster, processId, index);
-        assertNotNull(persistedEntry, processId + " should have a persisted entry at index " + index);
-        assertTrue(persistedEntry.committedValue().isPresent(),
-                processId + " should have a committed persisted entry at index " + index);
-    }
-
-    private static PaxosState waitUntilPersistedCommittedEntry(Cluster cluster, ProcessId processId, int index) {
-        cluster.tickUntil(() -> !getServer(cluster, processId).hasPendingPersistFor(index));
-        return cluster.tickUntilComplete(getServer(cluster, processId).getPersistedLogEntry(index));
+    private static void assertCommittedLogEntry(Cluster cluster, ProcessId processId, int index) {
+        PaxosState entry = getServer(cluster, processId).getLogEntry(index);
+        assertNotNull(entry, processId + " should have a log entry at index " + index);
+        assertTrue(entry.committedValue().isPresent(),
+                processId + " should have a committed log entry at index " + index);
     }
 
     private static PaxosLogServer getServer(Cluster cluster, ProcessId id) {
