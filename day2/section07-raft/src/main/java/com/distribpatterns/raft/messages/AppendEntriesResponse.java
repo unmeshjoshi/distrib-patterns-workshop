@@ -1,4 +1,4 @@
-package com.distribpatterns.raft;
+package com.distribpatterns.raft.messages;
 
 /**
  * AppendEntries RPC response - Raft §5.3, Figure 2

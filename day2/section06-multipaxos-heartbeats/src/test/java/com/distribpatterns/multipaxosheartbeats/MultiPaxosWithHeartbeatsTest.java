@@ -1,5 +1,7 @@
 package com.distribpatterns.multipaxosheartbeats;
 
+import com.distribpatterns.multipaxosheartbeats.messages.ExecuteCommandResponse;
+import com.distribpatterns.multipaxosheartbeats.messages.SetValueOperation;
 import com.tickloom.ProcessId;
 import com.tickloom.testkit.Cluster;
 import org.junit.jupiter.api.DisplayName;

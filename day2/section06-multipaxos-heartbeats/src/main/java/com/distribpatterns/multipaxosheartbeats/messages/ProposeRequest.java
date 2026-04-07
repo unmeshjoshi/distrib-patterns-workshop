@@ -1,4 +1,4 @@
-package com.distribpatterns.multipaxosheartbeats;
+package com.distribpatterns.multipaxosheartbeats.messages;
 
 /**
  * Phase 1: Leader proposes value at log index.

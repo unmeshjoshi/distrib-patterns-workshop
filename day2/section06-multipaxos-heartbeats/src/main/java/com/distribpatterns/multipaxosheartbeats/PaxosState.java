@@ -1,5 +1,7 @@
 package com.distribpatterns.multipaxosheartbeats;
 
+import com.distribpatterns.multipaxosheartbeats.messages.Operation;
+
 import java.util.Optional;
 
 /**

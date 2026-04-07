@@ -1,4 +1,4 @@
-package com.distribpatterns.multipaxosheartbeats;
+package com.distribpatterns.multipaxosheartbeats.messages;
 
 /**
  * Heartbeat message sent from leader to followers.

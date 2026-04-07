@@ -1,7 +1,8 @@
 package com.distribpatterns.raft;
 
+import com.distribpatterns.raft.messages.ExecuteCommandResponse;
+import com.distribpatterns.raft.messages.SetValueOperation;
 import com.tickloom.ProcessId;
-import com.tickloom.future.ListenableFuture;
 import com.tickloom.testkit.Cluster;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -9,12 +10,11 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.util.List;
 
-import static com.tickloom.testkit.ClusterAssertions.assertEventually;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests for Raft consensus algorithm.
- * 
+ *
  * Key safety properties tested:
  * 1. Election Safety: At most one leader per term
  * 2. Leader Append-Only: Leader never overwrites/deletes entries
@@ -23,121 +23,111 @@ import static org.junit.jupiter.api.Assertions.*;
  * 5. State Machine Safety: If server applies entry at index i, no other server applies different entry at i
  */
 public class RaftTest {
-    
+
     private static final ProcessId ATHENS = ProcessId.of("athens");
     private static final ProcessId BYZANTIUM = ProcessId.of("byzantium");
     private static final ProcessId CYRENE = ProcessId.of("cyrene");
+    private static final List<ProcessId> REPLICAS = List.of(ATHENS, BYZANTIUM, CYRENE);
+
     private static final ProcessId CLIENT_ALICE = ProcessId.of("alice");
-    
-    // Test-friendly election timeout (low for fast tests)
+    private static final String TITLE_KEY = "title";
+
     private static final int ELECTION_TIMEOUT_TICKS = 20;
-    
-    private RaftServer getServer(Cluster cluster, ProcessId id) {
-        return (RaftServer) cluster.getProcess(id);
-    }
-    
+
     @Test
     @DisplayName("Election Safety: At most one leader per term")
     void testElectionSafety() throws IOException {
-        System.out.println("\n=== TEST: Election Safety ===\n");
-        
         try (var cluster = new Cluster()
-                .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
-                .useSimulatedNetwork()
-                .build((allNodes, processParams) ->
-                    new RaftServer(allNodes, processParams, ELECTION_TIMEOUT_TICKS))
-                .start()) {
-            
-            // Wait for election
-            for (int i = 0; i < 300; i++) {
-                cluster.tick();
-            }
-            
-            RaftServer athens = getServer(cluster, ATHENS);
-            RaftServer byzantium = getServer(cluster, BYZANTIUM);
-            RaftServer cyrene = getServer(cluster, CYRENE);
-            
-            // Count leaders
-            int leaderCount = 0;
-            RaftServer leader = null;
-            if (athens.isLeader()) { leaderCount++; leader = athens; }
-            if (byzantium.isLeader()) { leaderCount++; leader = byzantium; }
-            if (cyrene.isLeader()) { leaderCount++; leader = cyrene; }
-            
-            assertEquals(1, leaderCount, "Should have exactly one leader");
-            assertNotNull(leader);
-            
-            // All servers should be in the same term
-            int term = leader.getCurrentTerm();
-            assertTrue(athens.getCurrentTerm() >= term);
-            assertTrue(byzantium.getCurrentTerm() >= term);
-            assertTrue(cyrene.getCurrentTerm() >= term);
-            
-            System.out.println("✓ Election safety verified - one leader in term " + term);
+            .withProcessIds(REPLICAS)
+            .useSimulatedNetwork()
+            .build((allNodes, processParams) ->
+                new RaftServer(allNodes, processParams, ELECTION_TIMEOUT_TICKS))
+            .start()) {
+
+            ProcessId leaderId = waitUntilLeaderElected(cluster);
+            int leaderTerm = getServer(cluster, leaderId).getCurrentTerm();
+
+            assertEquals(1, leaderCount(cluster), "Should have exactly one leader");
+            assertTermOnAllReplicas(cluster, leaderTerm);
         }
     }
 
     @Test
     @DisplayName("Basic Replication: Leader replicates to followers")
     void testBasicReplication() throws IOException {
-        System.out.println("\n=== TEST: Basic Replication ===\n");
-        
         try (var cluster = new Cluster()
-                .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
-                .useSimulatedNetwork()
-                .build((allNodes, processParams) ->
-                    new RaftServer(allNodes, processParams, ELECTION_TIMEOUT_TICKS))
-                .start()) {
-            
-            RaftServer athens = getServer(cluster, ATHENS);
-            RaftServer byzantium = getServer(cluster, BYZANTIUM);
-            RaftServer cyrene = getServer(cluster, CYRENE);
-            
-            // Wait for leader
-            for (int i = 0; i < 300; i++) {
-                cluster.tick();
-            }
+            .withProcessIds(REPLICAS)
+            .useSimulatedNetwork()
+            .build((allNodes, processParams) ->
+                new RaftServer(allNodes, processParams, ELECTION_TIMEOUT_TICKS))
+            .start()) {
 
-            ProcessId leaderId = getLeaderId(athens, byzantium, cyrene);
-            assertNotNull(leaderId);
+            ProcessId leaderId = waitUntilLeaderElected(cluster);
+            assertOtherNodesAreFollowers(cluster, leaderId);
 
-            assertOtherNodesAreFollowers(cluster, leaderId, List.of(ATHENS, BYZANTIUM, CYRENE).stream().filter(p -> !p.equals(leaderId)).toList());
-            
-            // Submit operation
             var client = cluster.newClientConnectedTo(CLIENT_ALICE, leaderId, RaftClient::new);
 
-            ListenableFuture<ExecuteCommandResponse> future = client.execute(leaderId, new SetValueOperation("title", "Raft Consensus"));
-            
-            assertEventually(cluster, () -> future.isCompleted() && !future.isFailed());
-            assertTrue(future.getResult().success());
-            
-            // Wait for commitIndex to be propagated to followers
-            for (int i = 0; i < 100; i++) {
-                cluster.tick();
-            }
-            
-            // All servers should have the value
-            assertEquals("Raft Consensus", athens.getValue("title"));
-            assertEquals("Raft Consensus", byzantium.getValue("title"));
-            assertEquals("Raft Consensus", cyrene.getValue("title"));
-            
-            System.out.println("Basic replication verified");
+            ExecuteCommandResponse response = cluster.tickUntilComplete(
+                client.execute(leaderId, new SetValueOperation(TITLE_KEY, "Raft Consensus"))
+            );
+
+            assertSuccessfulCommand(response);
+            cluster.tickUntil(() -> allReplicasHaveValue(cluster, TITLE_KEY, "Raft Consensus"));
+            assertValueOnAllReplicas(cluster, TITLE_KEY, "Raft Consensus");
         }
     }
 
-    private void assertOtherNodesAreFollowers(Cluster cluster, ProcessId leaderId, List<ProcessId> otherNodeIds) {
-        for (ProcessId nodeId : otherNodeIds) {
-            RaftServer server = getServer(cluster, nodeId);
-            assertFalse(server.isLeader());
-        }
-    }
-
-    private static ProcessId getLeaderId(RaftServer athens, RaftServer byzantium, RaftServer cyrene) {
-        ProcessId leaderId = null;
-        if (athens.isLeader()) leaderId = ATHENS;
-        else if (byzantium.isLeader()) leaderId = BYZANTIUM;
-        else if (cyrene.isLeader()) leaderId = CYRENE;
+    private static ProcessId waitUntilLeaderElected(Cluster cluster) {
+        cluster.tickUntil(() -> leaderCount(cluster) == 1);
+        ProcessId leaderId = currentLeaderId(cluster);
+        assertNotNull(leaderId, "A leader should be elected");
         return leaderId;
     }
-}
 
+    private static long leaderCount(Cluster cluster) {
+        return REPLICAS.stream()
+            .map(id -> getServer(cluster, id))
+            .filter(RaftServer::isLeader)
+            .count();
+    }
+
+    private static ProcessId currentLeaderId(Cluster cluster) {
+        return REPLICAS.stream()
+            .filter(id -> getServer(cluster, id).isLeader())
+            .findFirst()
+            .orElse(null);
+    }
+
+    private static void assertOtherNodesAreFollowers(Cluster cluster, ProcessId leaderId) {
+        for (ProcessId nodeId : REPLICAS) {
+            if (!nodeId.equals(leaderId)) {
+                assertFalse(getServer(cluster, nodeId).isLeader(), nodeId + " should remain a follower");
+            }
+        }
+    }
+
+    private static boolean allReplicasHaveValue(Cluster cluster, String key, String expectedValue) {
+        return REPLICAS.stream()
+            .allMatch(id -> expectedValue.equals(getServer(cluster, id).getValue(key)));
+    }
+
+    private static void assertValueOnAllReplicas(Cluster cluster, String key, String expectedValue) {
+        assertEquals(expectedValue, getServer(cluster, ATHENS).getValue(key));
+        assertEquals(expectedValue, getServer(cluster, BYZANTIUM).getValue(key));
+        assertEquals(expectedValue, getServer(cluster, CYRENE).getValue(key));
+    }
+
+    private static void assertTermOnAllReplicas(Cluster cluster, int expectedTerm) {
+        assertEquals(expectedTerm, getServer(cluster, ATHENS).getCurrentTerm());
+        assertEquals(expectedTerm, getServer(cluster, BYZANTIUM).getCurrentTerm());
+        assertEquals(expectedTerm, getServer(cluster, CYRENE).getCurrentTerm());
+    }
+
+    private static void assertSuccessfulCommand(ExecuteCommandResponse response) {
+        assertTrue(response.success(), "Command should succeed");
+    }
+
+    private static RaftServer getServer(Cluster cluster, ProcessId id) {
+        return cluster.getNode(id);
+    }
+}

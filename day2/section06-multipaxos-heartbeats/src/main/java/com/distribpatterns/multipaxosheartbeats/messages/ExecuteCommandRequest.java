@@ -1,4 +1,4 @@
-package com.distribpatterns.multipaxosheartbeats;
+package com.distribpatterns.multipaxosheartbeats.messages;
 
 /**
  * Client request to execute an operation in the replicated log.

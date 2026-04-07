@@ -1,4 +1,4 @@
-package com.distribpatterns.multipaxosheartbeats;
+package com.distribpatterns.multipaxosheartbeats.messages;
 
 /**
  * Response to ExecuteCommandRequest.

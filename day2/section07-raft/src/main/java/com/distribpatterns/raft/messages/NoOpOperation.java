@@ -1,4 +1,4 @@
-package com.distribpatterns.raft;
+package com.distribpatterns.raft.messages;
 
 /**
  * No-op operation used for log consistency checks and leader election.

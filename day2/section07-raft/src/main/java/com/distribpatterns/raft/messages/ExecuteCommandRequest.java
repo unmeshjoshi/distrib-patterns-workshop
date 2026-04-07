@@ -1,4 +1,4 @@
-package com.distribpatterns.raft;
+package com.distribpatterns.raft.messages;
 
 /**
  * Client request to execute an operation.

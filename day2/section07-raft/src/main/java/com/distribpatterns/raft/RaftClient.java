@@ -1,5 +1,6 @@
 package com.distribpatterns.raft;
 
+import com.distribpatterns.raft.messages.*;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.algorithms.replication.ClusterClient;
@@ -31,7 +32,7 @@ public class RaftClient extends ClusterClient {
     }
     
     public ListenableFuture<ExecuteCommandResponse> execute(ProcessId serverId, Operation operation) {
-        return sendRequest(new ExecuteCommandRequest(operation), serverId, 
+        return sendRequest(new ExecuteCommandRequest(operation), serverId,
                           RaftMessageTypes.CLIENT_EXECUTE_REQUEST);
     }
     

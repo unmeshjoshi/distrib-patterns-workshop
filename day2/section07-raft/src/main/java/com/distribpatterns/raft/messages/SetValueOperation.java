@@ -1,4 +1,4 @@
-package com.distribpatterns.raft;
+package com.distribpatterns.raft.messages;
 
 /**
  * Operation to set a key-value pair in the state machine.

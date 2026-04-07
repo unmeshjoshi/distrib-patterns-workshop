@@ -1,5 +1,6 @@
 package com.distribpatterns.multipaxosheartbeats;
 
+import com.distribpatterns.multipaxosheartbeats.messages.*;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.Replica;

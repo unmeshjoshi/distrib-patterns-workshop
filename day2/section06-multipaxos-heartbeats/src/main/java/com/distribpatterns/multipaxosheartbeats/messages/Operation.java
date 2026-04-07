@@ -1,4 +1,4 @@
-package com.distribpatterns.multipaxosheartbeats;
+package com.distribpatterns.multipaxosheartbeats.messages;
 
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;

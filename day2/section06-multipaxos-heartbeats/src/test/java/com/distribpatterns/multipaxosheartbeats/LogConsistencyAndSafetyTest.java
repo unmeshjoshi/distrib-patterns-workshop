@@ -1,5 +1,9 @@
 package com.distribpatterns.multipaxosheartbeats;
 
+import com.distribpatterns.multipaxosheartbeats.messages.CompareAndSwapOperation;
+import com.distribpatterns.multipaxosheartbeats.messages.ExecuteCommandResponse;
+import com.distribpatterns.multipaxosheartbeats.messages.GetValueResponse;
+import com.distribpatterns.multipaxosheartbeats.messages.SetValueOperation;
 import com.tickloom.ProcessId;
 import com.tickloom.future.ListenableFuture;
 import com.tickloom.testkit.Cluster;

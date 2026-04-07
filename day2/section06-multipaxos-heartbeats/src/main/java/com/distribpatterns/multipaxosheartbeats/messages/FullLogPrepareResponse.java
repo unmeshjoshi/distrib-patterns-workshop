@@ -1,4 +1,6 @@
-package com.distribpatterns.multipaxosheartbeats;
+package com.distribpatterns.multipaxosheartbeats.messages;
+
+import com.distribpatterns.multipaxosheartbeats.PaxosState;
 
 import java.util.Map;
 

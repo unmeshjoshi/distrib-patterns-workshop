@@ -1,5 +1,7 @@
 package com.distribpatterns.raft;
 
+import com.distribpatterns.raft.messages.Operation;
+
 /**
  * Raft log entry.
  * 
