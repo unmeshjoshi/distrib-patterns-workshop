@@ -1,4 +1,4 @@
-package com.distribpatterns.paxoslog;
+package com.distribpatterns.paxoslog.messages;
 
 /**
  * Response to ExecuteCommandRequest.

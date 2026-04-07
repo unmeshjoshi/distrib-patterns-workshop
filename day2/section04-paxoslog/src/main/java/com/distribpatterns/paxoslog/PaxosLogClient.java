@@ -1,5 +1,9 @@
 package com.distribpatterns.paxoslog;
 
+import com.distribpatterns.paxoslog.messages.ExecuteCommandRequest;
+import com.distribpatterns.paxoslog.messages.ExecuteCommandResponse;
+import com.distribpatterns.paxoslog.messages.GetValueRequest;
+import com.distribpatterns.paxoslog.messages.GetValueResponse;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.algorithms.replication.ClusterClient;

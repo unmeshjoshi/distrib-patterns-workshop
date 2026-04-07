@@ -1,4 +1,6 @@
-package com.distribpatterns.paxoslog;
+package com.distribpatterns.paxoslog.messages;
+
+import com.distribpatterns.paxoslog.Operation;
 
 /**
  * Phase 3: Coordinator tells acceptors that consensus has been reached

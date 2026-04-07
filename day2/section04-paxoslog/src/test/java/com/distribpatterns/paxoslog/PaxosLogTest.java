@@ -1,7 +1,8 @@
 package com.distribpatterns.paxoslog;
 
+import com.distribpatterns.paxoslog.messages.ExecuteCommandResponse;
+import com.distribpatterns.paxoslog.messages.GetValueResponse;
 import com.tickloom.ProcessId;
-import com.tickloom.future.ListenableFuture;
 import com.tickloom.testkit.Cluster;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -9,7 +10,6 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.util.List;
 
-import static com.tickloom.testkit.ClusterAssertions.assertEventually;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -24,261 +24,173 @@ public class PaxosLogTest {
     
     // Client
     private static final ProcessId CLIENT = ProcessId.of("client");
+    private static final String TITLE_KEY = "title";
+    private static final String AUTHOR_KEY = "author";
     
     @Test
     @DisplayName("Basic Command Execution: Single SetValue command")
     void testBasicSetValue() throws IOException {
-        System.out.println("\n=== TEST: Basic SetValue ===\n");
-
-        //Not doing createSimulated just to the same code if we switch to real networking with Java NIO.
         try (var cluster = Cluster.create(List.of(ATHENS, BYZANTIUM, CYRENE), (peerIds, processParams) -> new PaxosLogServer(peerIds, processParams))) {
-            
-            // Wait for all processes to initialize
-            assertEventually(cluster, () -> cluster.areAllNodesInitialized());
+            waitUntilAllNodesInitialised(cluster);
             
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, PaxosLogClient::new);
             
-            // Execute SetValue command
-            ListenableFuture<ExecuteCommandResponse> future = client.execute(ATHENS, 
-                new SetValueOperation("title", "Microservices"));
-            
-            // Wait for command to commit
-            assertEventually(cluster, () -> future.isCompleted() && !future.isFailed());
-            
-            // Verify response
-            var response = future.getResult();
+            ExecuteCommandResponse response = cluster.tickUntilComplete(client.execute(
+                ATHENS,
+                new SetValueOperation(TITLE_KEY, "Microservices")
+            ));
             assertTrue(response.success(), "Command should succeed");
             assertEquals("Microservices", response.result());
             
-            // Verify all nodes have the value
-            PaxosLogServer athens = getServer(cluster, ATHENS);
-            PaxosLogServer byzantium = getServer(cluster, BYZANTIUM);
-            PaxosLogServer cyrene = getServer(cluster, CYRENE);
-            
-            assertEquals("Microservices", athens.getValue("title"));
-            assertEquals("Microservices", byzantium.getValue("title"));
-            assertEquals("Microservices", cyrene.getValue("title"));
-            
-            // Verify high water mark
-            assertEquals(0, athens.getHighWaterMark());
-            
-            System.out.println("\n=== Test passed: Basic SetValue ===\n");
+            assertValueOnAllReplicas(cluster, TITLE_KEY, "Microservices");
+            assertHighWaterMarkOnAllReplicas(cluster, 0);
         }
     }
     
     @Test
     @DisplayName("Multiple Commands: Sequential log building")
     void testMultipleCommands() throws IOException {
-        System.out.println("\n=== TEST: Multiple Commands ===\n");
-        
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
                 .build((peerIds, processParams) -> new PaxosLogServer(peerIds, processParams))
                 .start()) {
-            
-            // Wait for all processes to initialize
-            assertEventually(cluster, () -> cluster.areAllNodesInitialized());
+            waitUntilAllNodesInitialised(cluster);
             
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, PaxosLogClient::new);
             
-            // Command 1: Set title
-            ListenableFuture<ExecuteCommandResponse> future1 = client.execute(ATHENS,
-                new SetValueOperation("title", "Microservices"));
-            assertEventually(cluster, () -> future1.isCompleted() && !future1.isFailed());
-            assertTrue(future1.getResult().success());
+            ExecuteCommandResponse firstResponse = cluster.tickUntilComplete(client.execute(
+                ATHENS,
+                new SetValueOperation(TITLE_KEY, "Microservices")
+            ));
+            assertSuccessfulCommand(firstResponse);
             
-            // Command 2: Set author
-            ListenableFuture<ExecuteCommandResponse> future2 = client.execute(BYZANTIUM,
-                new SetValueOperation("author", "Martin"));
-            assertEventually(cluster, () -> future2.isCompleted() && !future2.isFailed());
-            assertTrue(future2.getResult().success());
+            ExecuteCommandResponse secondResponse = cluster.tickUntilComplete(client.execute(
+                BYZANTIUM,
+                new SetValueOperation(AUTHOR_KEY, "Martin")
+            ));
+            assertSuccessfulCommand(secondResponse);
             
-            // Verify log consistency
             PaxosLogServer athens = getServer(cluster, ATHENS);
-            PaxosLogServer byzantium = getServer(cluster, BYZANTIUM);
-            PaxosLogServer cyrene = getServer(cluster, CYRENE);
-            
-            // Verify high water mark
-            assertEquals(1, athens.getHighWaterMark());
-            assertEquals(1, byzantium.getHighWaterMark());
-            assertEquals(1, cyrene.getHighWaterMark());
-            
-            assertEquals("Microservices", athens.getValue("title"));
-            assertEquals("Martin", athens.getValue("author"));
-            
-            System.out.println("\n=== Test passed: Multiple Commands ===\n");
+            assertHighWaterMarkOnAllReplicas(cluster, 1);
+            assertEquals("Microservices", athens.getValue(TITLE_KEY));
+            assertEquals("Martin", athens.getValue(AUTHOR_KEY));
         }
     }
     
     @Test
     @DisplayName("Compare-And-Swap: Atomic conditional update")
     void testCompareAndSwap() throws IOException {
-        System.out.println("\n=== TEST: Compare-And-Swap ===\n");
-        
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
                 .build((peerIds, processParams) -> new PaxosLogServer(peerIds, processParams))
                 .start()) {
-            
-            // Wait for all processes to initialize
-            assertEventually(cluster, () -> cluster.areAllNodesInitialized());
+            waitUntilAllNodesInitialised(cluster);
             
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, PaxosLogClient::new);
             
-            // Set initial value
-            ListenableFuture<ExecuteCommandResponse> future1 = client.execute(ATHENS,
-                new SetValueOperation("title", "Microservices"));
-            assertEventually(cluster, () -> future1.isCompleted() && !future1.isFailed());
+            cluster.tickUntilComplete(client.execute(
+                ATHENS,
+                new SetValueOperation(TITLE_KEY, "Microservices")
+            ));
             
-            // CAS: Should fail (expected value doesn't match)
-            ListenableFuture<ExecuteCommandResponse> future2 = client.execute(BYZANTIUM,
-                new CompareAndSwapOperation("title", "Wrong Value", "Updated"));
-            assertEventually(cluster, () -> future2.isCompleted() && !future2.isFailed());
-            
-            var cas1Result = future2.getResult();
+            ExecuteCommandResponse cas1Result = cluster.tickUntilComplete(client.execute(
+                BYZANTIUM,
+                new CompareAndSwapOperation(TITLE_KEY, "Wrong Value", "Updated")
+            ));
             assertFalse(cas1Result.success(), "CAS should fail when expected value doesn't match");
             assertEquals("Microservices", cas1Result.result(), "Should return current value");
             
-            // CAS: Should succeed (expected value matches)
-            ListenableFuture<ExecuteCommandResponse> future3 = client.execute(CYRENE,
-                new CompareAndSwapOperation("title", "Microservices", "Event Driven Microservices"));
-            assertEventually(cluster, () -> future3.isCompleted() && !future3.isFailed());
-            
-            var cas2Result = future3.getResult();
+            ExecuteCommandResponse cas2Result = cluster.tickUntilComplete(client.execute(
+                CYRENE,
+                new CompareAndSwapOperation(TITLE_KEY, "Microservices", "Event Driven Microservices")
+            ));
             assertTrue(cas2Result.success(), "CAS should succeed when expected value matches");
             assertEquals("Microservices", cas2Result.result(), "Should return previous value");
             
-            // Verify final value
-            PaxosLogServer athens = getServer(cluster, ATHENS);
-            assertEquals("Event Driven Microservices", athens.getValue("title"));
-            
-            System.out.println("\n=== Test passed: Compare-And-Swap ===\n");
+            assertValueOnAllReplicas(cluster, TITLE_KEY, "Event Driven Microservices");
         }
     }
     
     @Test
     @DisplayName("Get Value: Read with no-op")
     void testGetValue() throws IOException {
-        System.out.println("\n=== TEST: Get Value ===\n");
-        
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
                 .build((peerIds, processParams) -> new PaxosLogServer(peerIds, processParams))
                 .start()) {
-            
-            // Wait for all processes to initialize
-            assertEventually(cluster, () -> cluster.areAllNodesInitialized());
+            waitUntilAllNodesInitialised(cluster);
             
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, PaxosLogClient::new);
             
-            // Set a value
-            ListenableFuture<ExecuteCommandResponse> setFuture = client.execute(ATHENS,
-                new SetValueOperation("author", "Martin"));
-            assertEventually(cluster, () -> setFuture.isCompleted() && !setFuture.isFailed());
+            cluster.tickUntilComplete(client.execute(
+                ATHENS,
+                new SetValueOperation(AUTHOR_KEY, "Martin")
+            ));
             
-            // Get the value
-            ListenableFuture<GetValueResponse> getFuture = client.getValue(BYZANTIUM, "author");
-            assertEventually(cluster, () -> getFuture.isCompleted() && !getFuture.isFailed());
-            
-            var response = getFuture.getResult();
+            // Reads also go through Paxos by committing a no-op entry first.
+            // That guarantees this node has applied all earlier committed log entries
+            // before reading from the local state machine.
+            GetValueResponse response = cluster.tickUntilComplete(client.getValue(BYZANTIUM, AUTHOR_KEY));
             assertEquals("Martin", response.value());
-            
-            System.out.println("\n=== Test passed: Get Value ===\n");
         }
     }
     
     @Test
     @DisplayName("Persistence: Log entries are stored in Storage")
     void testPersistence() throws IOException {
-        System.out.println("\n=== TEST: Persistence ===\n");
-        
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
                 .build((peerIds, processParams) -> new PaxosLogServer(peerIds, processParams))
                 .start()) {
-            
-            // Wait for all processes to initialize
-            assertEventually(cluster, () -> cluster.areAllNodesInitialized());
+            waitUntilAllNodesInitialised(cluster);
             
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, PaxosLogClient::new);
             
-            // Write multiple entries
-            ListenableFuture<ExecuteCommandResponse> future1 = client.execute(ATHENS,
-                new SetValueOperation("key1", "value1"));
-            assertEventually(cluster, () -> future1.isCompleted() && !future1.isFailed());
-            assertTrue(future1.getResult().success());
+            ExecuteCommandResponse firstResponse = cluster.tickUntilComplete(client.execute(
+                ATHENS,
+                new SetValueOperation("key1", "value1")
+            ));
+            assertSuccessfulCommand(firstResponse);
             
-            ListenableFuture<ExecuteCommandResponse> future2 = client.execute(BYZANTIUM,
-                new SetValueOperation("key2", "value2"));
-            assertEventually(cluster, () -> future2.isCompleted() && !future2.isFailed());
-            assertTrue(future2.getResult().success());
-            
-            // Verify all nodes have the entries in their log cache
-            PaxosLogServer athens = getServer(cluster, ATHENS);
-            PaxosLogServer byzantium = getServer(cluster, BYZANTIUM);
-            PaxosLogServer cyrene = getServer(cluster, CYRENE);
-            
-            // Check that log entries exist in cache (they should be loaded from storage)
-            var athensLog = athens.getPaxosLog();
-            var byzantiumLog = byzantium.getPaxosLog();
-            var cyreneLog = cyrene.getPaxosLog();
-            
-            // All nodes should have at least 2 entries (indices 0 and 1)
-            assertTrue(athensLog.size() >= 2, "Athens should have at least 2 log entries");
-            assertTrue(byzantiumLog.size() >= 2, "Byzantium should have at least 2 log entries");
-            assertTrue(cyreneLog.size() >= 2, "Cyrene should have at least 2 log entries");
-            
-            // Verify high water mark
-            assertEquals(1, athens.getHighWaterMark(), "High water mark should be 1");
-            assertEquals(1, byzantium.getHighWaterMark(), "High water mark should be 1");
-            assertEquals(1, cyrene.getHighWaterMark(), "High water mark should be 1");
-            
-            // Verify committed values
-            var entry0 = athensLog.get(0);
-            var entry1 = athensLog.get(1);
-            assertNotNull(entry0, "Entry at index 0 should exist");
-            assertNotNull(entry1, "Entry at index 1 should exist");
-            assertTrue(entry0.committedValue().isPresent(), "Entry 0 should be committed");
-            assertTrue(entry1.committedValue().isPresent(), "Entry 1 should be committed");
-            
-            System.out.println("\n=== Test passed: Persistence ===\n");
+            ExecuteCommandResponse secondResponse = cluster.tickUntilComplete(client.execute(
+                BYZANTIUM,
+                new SetValueOperation("key2", "value2")
+            ));
+            assertSuccessfulCommand(secondResponse);
+            assertHighWaterMarkOnAllReplicas(cluster, 1);
+            assertPersistedCommittedEntryOnAllReplicas(cluster, 0);
+            assertPersistedCommittedEntryOnAllReplicas(cluster, 1);
         }
     }
     
     @Test
     @DisplayName("Log Consistency: All nodes have same log entries")
     void testLogConsistency() throws IOException {
-        System.out.println("\n=== TEST: Log Consistency ===\n");
-        
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
                 .build((peerIds, processParams) -> new PaxosLogServer(peerIds, processParams))
                 .start()) {
-            
-            // Wait for all processes to initialize
-            assertEventually(cluster, () -> cluster.areAllNodesInitialized());
+            waitUntilAllNodesInitialised(cluster);
             
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, PaxosLogClient::new);
             
-            // Write 3 entries
             for (int i = 0; i < 3; i++) {
-                ListenableFuture<ExecuteCommandResponse> future = client.execute(ATHENS,
-                    new SetValueOperation("key" + i, "value" + i));
-                assertEventually(cluster, () -> future.isCompleted() && !future.isFailed());
-                assertTrue(future.getResult().success(), "Entry " + i + " should succeed");
+                ExecuteCommandResponse response = cluster.tickUntilComplete(client.execute(
+                    ATHENS,
+                    new SetValueOperation("key" + i, "value" + i)
+                ));
+                assertSuccessfulCommand(response, "Entry " + i + " should succeed");
             }
             
-            // Verify all nodes have consistent logs
             PaxosLogServer athens = getServer(cluster, ATHENS);
             PaxosLogServer byzantium = getServer(cluster, BYZANTIUM);
             PaxosLogServer cyrene = getServer(cluster, CYRENE);
             
-            // All nodes should have the same high water mark
             int hwm = athens.getHighWaterMark();
             assertEquals(hwm, byzantium.getHighWaterMark(), "Byzantium HWM should match Athens");
             assertEquals(hwm, cyrene.getHighWaterMark(), "Cyrene HWM should match Athens");
@@ -290,24 +202,10 @@ public class PaxosLogTest {
             var cyreneLog = cyrene.getPaxosLog();
             
             for (int i = 0; i <= hwm; i++) {
-                var athensEntry = athensLog.get(i);
-                var byzantiumEntry = byzantiumLog.get(i);
-                var cyreneEntry = cyreneLog.get(i);
-                
-                assertNotNull(athensEntry, "Athens should have entry at index " + i);
-                assertNotNull(byzantiumEntry, "Byzantium should have entry at index " + i);
-                assertNotNull(cyreneEntry, "Cyrene should have entry at index " + i);
-                
-                // All should be committed
-                assertTrue(athensEntry.committedValue().isPresent(), 
-                    "Athens entry " + i + " should be committed");
-                assertTrue(byzantiumEntry.committedValue().isPresent(), 
-                    "Byzantium entry " + i + " should be committed");
-                assertTrue(cyreneEntry.committedValue().isPresent(), 
-                    "Cyrene entry " + i + " should be committed");
+                assertCommittedEntryExists(athensLog, i, "Athens should have a committed entry at index " + i);
+                assertCommittedEntryExists(byzantiumLog, i, "Byzantium should have a committed entry at index " + i);
+                assertCommittedEntryExists(cyreneLog, i, "Cyrene should have a committed entry at index " + i);
             }
-            
-            System.out.println("\n=== Test passed: Log Consistency ===\n");
         }
     }
     
@@ -324,8 +222,62 @@ public class PaxosLogTest {
      * 5. Verify entries are recovered
      */
     
+    private static void waitUntilAllNodesInitialised(Cluster cluster) {
+        cluster.tickUntil(() ->
+                getServer(cluster, ATHENS).isInitialised()
+                        && getServer(cluster, BYZANTIUM).isInitialised()
+                        && getServer(cluster, CYRENE).isInitialised());
+    }
+
+    private static void assertValueOnAllReplicas(Cluster cluster, String key, String expectedValue) {
+        assertEquals(expectedValue, getServer(cluster, ATHENS).getValue(key));
+        assertEquals(expectedValue, getServer(cluster, BYZANTIUM).getValue(key));
+        assertEquals(expectedValue, getServer(cluster, CYRENE).getValue(key));
+    }
+
+    private static void assertHighWaterMarkOnAllReplicas(Cluster cluster, int expectedHighWaterMark) {
+        assertEquals(expectedHighWaterMark, getServer(cluster, ATHENS).getHighWaterMark());
+        assertEquals(expectedHighWaterMark, getServer(cluster, BYZANTIUM).getHighWaterMark());
+        assertEquals(expectedHighWaterMark, getServer(cluster, CYRENE).getHighWaterMark());
+    }
+
+    private static void assertSuccessfulCommand(ExecuteCommandResponse response) {
+        assertSuccessfulCommand(response, "Command should succeed");
+    }
+
+    private static void assertSuccessfulCommand(ExecuteCommandResponse response, String message) {
+        assertTrue(response.success(), message);
+    }
+
+    private static void assertCommittedEntryExists(java.util.Map<Integer, PaxosState> log, int index) {
+        assertCommittedEntryExists(log, index, "Entry at index " + index + " should exist and be committed");
+    }
+
+    private static void assertCommittedEntryExists(java.util.Map<Integer, PaxosState> log, int index, String message) {
+        PaxosState entry = log.get(index);
+        assertNotNull(entry, message);
+        assertTrue(entry.committedValue().isPresent(), message);
+    }
+
+    private static void assertPersistedCommittedEntryOnAllReplicas(Cluster cluster, int index) {
+        assertPersistedCommittedEntry(cluster, ATHENS, index);
+        assertPersistedCommittedEntry(cluster, BYZANTIUM, index);
+        assertPersistedCommittedEntry(cluster, CYRENE, index);
+    }
+
+    private static void assertPersistedCommittedEntry(Cluster cluster, ProcessId processId, int index) {
+        PaxosState persistedEntry = waitUntilPersistedCommittedEntry(cluster, processId, index);
+        assertNotNull(persistedEntry, processId + " should have a persisted entry at index " + index);
+        assertTrue(persistedEntry.committedValue().isPresent(),
+                processId + " should have a committed persisted entry at index " + index);
+    }
+
+    private static PaxosState waitUntilPersistedCommittedEntry(Cluster cluster, ProcessId processId, int index) {
+        cluster.tickUntil(() -> !getServer(cluster, processId).hasPendingPersistFor(index));
+        return cluster.tickUntilComplete(getServer(cluster, processId).getPersistedLogEntry(index));
+    }
+
     private static PaxosLogServer getServer(Cluster cluster, ProcessId id) {
-        return (PaxosLogServer) cluster.getProcess(id);
+        return cluster.getNode(id);
     }
 }
-

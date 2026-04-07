@@ -1,4 +1,6 @@
-package com.distribpatterns.paxoslog;
+package com.distribpatterns.paxoslog.messages;
+
+import com.distribpatterns.paxoslog.Operation;
 
 /**
  * Phase 2a: Proposer asks acceptors to accept this value

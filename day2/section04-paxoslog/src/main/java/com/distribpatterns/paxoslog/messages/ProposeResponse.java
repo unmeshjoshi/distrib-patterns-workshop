@@ -1,4 +1,4 @@
-package com.distribpatterns.paxoslog;
+package com.distribpatterns.paxoslog.messages;
 
 /**
  * Phase 2b: Acceptor's response to ProposeRequest.

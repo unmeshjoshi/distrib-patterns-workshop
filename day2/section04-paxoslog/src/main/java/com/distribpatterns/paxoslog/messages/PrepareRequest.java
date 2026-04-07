@@ -1,4 +1,4 @@
-package com.distribpatterns.paxoslog;
+package com.distribpatterns.paxoslog.messages;
 
 /**
  * Phase 1a: Proposer asks acceptors to promise not to accept

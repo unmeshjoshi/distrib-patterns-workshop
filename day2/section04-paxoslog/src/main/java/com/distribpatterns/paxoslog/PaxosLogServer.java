@@ -1,5 +1,6 @@
 package com.distribpatterns.paxoslog;
 
+import com.distribpatterns.paxoslog.messages.*;
 import com.distribpatterns.wal.LogStore;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
@@ -30,6 +31,10 @@ public class PaxosLogServer extends Replica {
     // In-memory cache: one PaxosState per log index (for fast access)
     // This is rebuilt from LogStore on startup
     private final Map<Integer, PaxosState> paxosLogCache = new TreeMap<>();
+    private final Map<Integer, ListenableFuture<Boolean>> pendingPersistsByIndex = new HashMap<>();
+    private final Map<Integer, ExecuteCommandResponse> executedResponsesByIndex = new HashMap<>();
+    private final Set<Integer> durablyCommittedIndices = new HashSet<>();
+    private final Map<Integer, ClientCommitContext> pendingClientCommitsByIndex = new HashMap<>();
 
     // State machine: key-value store
     private final Map<String, String> kvStore = new HashMap<>();
@@ -46,8 +51,7 @@ public class PaxosLogServer extends Replica {
     // No-op operation for reads
     private static final NoOpOperation NO_OP = new NoOpOperation();
     
-    // Initialization flag
-    private boolean initialized = false;
+    private record ClientCommitContext(String clientKey, Operation agreedValue, Operation initialOperation) {}
     
     public PaxosLogServer(List<ProcessId> allNodes, ProcessParams processParams) {
         super(allNodes, processParams);
@@ -73,9 +77,9 @@ public class PaxosLogServer extends Replica {
         if (logStore.isInitialised()) {
             loadLogEntriesFromStorage(initFuture);
         } else {
-            // LogStore is still initializing - mark as initialized anyway
+            // LogStore is still initializing - allow the process to come up and
+            // load entries lazily on first access.
             // Entries will be loaded on first access
-            initialized = true;
             initFuture.complete(null);
         }
         
@@ -84,68 +88,71 @@ public class PaxosLogServer extends Replica {
     
     private void loadLogEntriesFromStorage(ListenableFuture<Void> initFuture) {
         if (logStore == null) {
-            initialized = true;
-            if (initFuture != null) initFuture.complete(null);
+            completeInitialization(initFuture);
             return;
         }
         
-        // Find the last log index
         ListenableFuture<byte[]> lastKeyFuture = storage.lowerKey(
             logStore.createLogKey(PAXOS_LOG_ID, Long.MAX_VALUE));
         
         lastKeyFuture.andThen((lastKey, error) -> {
             if (error != null) {
-                System.err.println(id + ": Error finding last log index: " + error.getMessage());
-                initialized = true;
-                if (initFuture != null) initFuture.complete(null);
+                completeInitializationWithError(initFuture, "Error finding last log index", error);
                 return;
             }
             
             if (lastKey == null) {
-                // No entries in log yet
                 System.out.println(id + ": No existing log entries found");
-                initialized = true;
-                if (initFuture != null) initFuture.complete(null);
+                completeInitialization(initFuture);
                 return;
             }
             
-            long lastIndex = logStore.getIndex(lastKey);
-            System.out.println(id + ": Loading log entries from storage, last index: " + lastIndex);
-            
-            // Load all entries from index 0 to lastIndex
-            byte[] startKey = logStore.createLogKey(PAXOS_LOG_ID, 0L);
-            byte[] endKey = logStore.createLogKey(PAXOS_LOG_ID, lastIndex + 1L);
-            
-            ListenableFuture<Map<byte[], byte[]>> rangeFuture = storage.readRange(startKey, endKey);
-            rangeFuture.andThen((entries, rangeError) -> {
-                if (rangeError != null) {
-                    System.err.println(id + ": Error reading log entries: " + rangeError.getMessage());
-                    initialized = true;
-                    if (initFuture != null) initFuture.complete(null);
-                    return;
-                }
-                
-                // Deserialize and cache all entries
-                for (Map.Entry<byte[], byte[]> entry : entries.entrySet()) {
-                    long index = logStore.getIndex(entry.getKey());
-                    PaxosState state = deserializePaxosState(entry.getValue());
-                    paxosLogCache.put((int) index, state);
-                    
-                    // Update high water mark if entry is committed
-                    if (state.committedValue().isPresent()) {
-                        highWaterMark = Math.max(highWaterMark, (int) index);
-                    }
-                }
-                
-                System.out.println(id + ": Loaded " + entries.size() + " log entries, highWaterMark: " + highWaterMark);
-                
-                // Replay committed entries to rebuild state machine
-                replayCommittedEntries();
-                
-                initialized = true;
-                if (initFuture != null) initFuture.complete(null);
-            });
+            loadLogRange(initFuture, lastKey);
         });
+    }
+
+    private void loadLogRange(ListenableFuture<Void> initFuture, byte[] lastKey) {
+        long lastIndex = logStore.getIndex(lastKey);
+        System.out.println(id + ": Loading log entries from storage, last index: " + lastIndex);
+
+        byte[] startKey = logStore.createLogKey(PAXOS_LOG_ID, 0L);
+        byte[] endKey = logStore.createLogKey(PAXOS_LOG_ID, lastIndex + 1L);
+
+        ListenableFuture<Map<byte[], byte[]>> rangeFuture = storage.readRange(startKey, endKey);
+        rangeFuture.andThen((entries, rangeError) -> {
+            if (rangeError != null) {
+                completeInitializationWithError(initFuture, "Error reading log entries", rangeError);
+                return;
+            }
+
+            cacheLoadedEntries(entries);
+            System.out.println(id + ": Loaded " + entries.size() + " log entries, highWaterMark: " + highWaterMark);
+            replayCommittedEntries();
+            completeInitialization(initFuture);
+        });
+    }
+
+    private void cacheLoadedEntries(Map<byte[], byte[]> entries) {
+        for (Map.Entry<byte[], byte[]> entry : entries.entrySet()) {
+            long index = logStore.getIndex(entry.getKey());
+            PaxosState state = deserializePaxosState(entry.getValue());
+            paxosLogCache.put((int) index, state);
+
+            if (state.committedValue().isPresent()) {
+                highWaterMark = Math.max(highWaterMark, (int) index);
+            }
+        }
+    }
+
+    private void completeInitializationWithError(ListenableFuture<Void> initFuture, String context, Throwable error) {
+        System.err.println(id + ": " + context + ": " + error.getMessage());
+        completeInitialization(initFuture);
+    }
+
+    private void completeInitialization(ListenableFuture<Void> initFuture) {
+        if (initFuture != null) {
+            initFuture.complete(null);
+        }
     }
     
     private void replayCommittedEntries() {
@@ -183,56 +190,75 @@ public class PaxosLogServer extends Replica {
     
     private void handleClientExecuteRequest(Message clientMessage) {
         ExecuteCommandRequest request = deserializePayload(clientMessage.payload(), ExecuteCommandRequest.class);
-        String clientKey = "client_" + clientMessage.correlationId();
+        String clientKey = clientKeyFor(clientMessage);
         
         System.out.println(id + ": Received execute request for command: " + request.operation());
-        
-        // Store client callback
-        waitingList.add(clientKey, new RequestCallback<Object>() {
-            @Override
-            public void onResponse(Object response, ProcessId fromNode) {
-                var responseMsg = createMessage(clientMessage.source(), clientMessage.correlationId(),
-                    response, PaxosLogMessageTypes.CLIENT_EXECUTE_RESPONSE);
-                send(responseMsg);
-            }
-            
-            @Override
-            public void onError(Exception error) {
-                send(createMessage(clientMessage.source(), clientMessage.correlationId(),
-                    new ExecuteCommandResponse(false, null), PaxosLogMessageTypes.CLIENT_EXECUTE_RESPONSE));
-            }
-        });
-        
-        // Start appending to log
+
+        registerExecuteResponseCallback(clientMessage, clientKey);
         appendToLog(0, request.operation(), clientKey);
     }
     
     private void handleClientGetRequest(Message clientMessage) {
         GetValueRequest request = deserializePayload(clientMessage.payload(), GetValueRequest.class);
-        String clientKey = "client_" + clientMessage.correlationId();
+        String clientKey = clientKeyFor(clientMessage);
         
         System.out.println(id + ": Received get request for key: " + request.key());
-        
-        // Store client callback
-        waitingList.add(clientKey, new RequestCallback<Object>() {
+
+        registerGetResponseCallback(clientMessage, request.key(), clientKey);
+        appendToLog(0, NO_OP, clientKey);
+    }
+
+    private String clientKeyFor(Message clientMessage) {
+        return "client_" + clientMessage.correlationId();
+    }
+
+    private void registerExecuteResponseCallback(Message clientMessage, String clientKey) {
+        waitingList.add(clientKey, new RequestCallback<>() {
             @Override
             public void onResponse(Object response, ProcessId fromNode) {
-                // After no-op commits, read from KV store
-                String value = kvStore.get(request.key());
-                var responseMsg = createMessage(clientMessage.source(), clientMessage.correlationId(),
-                    new GetValueResponse(value), PaxosLogMessageTypes.CLIENT_GET_RESPONSE);
-                send(responseMsg);
+                send(createClientResponse(
+                        clientMessage,
+                        response,
+                        PaxosLogMessageTypes.CLIENT_EXECUTE_RESPONSE
+                ));
             }
-            
+
             @Override
             public void onError(Exception error) {
-                send(createMessage(clientMessage.source(), clientMessage.correlationId(),
-                    new GetValueResponse(null), PaxosLogMessageTypes.CLIENT_GET_RESPONSE));
+                send(createClientResponse(
+                        clientMessage,
+                        new ExecuteCommandResponse(false, null),
+                        PaxosLogMessageTypes.CLIENT_EXECUTE_RESPONSE
+                ));
             }
         });
-        
-        // Execute a no-op to ensure we see committed state
-        appendToLog(0, NO_OP, clientKey);
+    }
+
+    private void registerGetResponseCallback(Message clientMessage, String key, String clientKey) {
+        waitingList.add(clientKey, new RequestCallback<>() {
+            @Override
+            public void onResponse(Object response, ProcessId fromNode) {
+                String value = kvStore.get(key);
+                send(createClientResponse(
+                        clientMessage,
+                        new GetValueResponse(value),
+                        PaxosLogMessageTypes.CLIENT_GET_RESPONSE
+                ));
+            }
+
+            @Override
+            public void onError(Exception error) {
+                send(createClientResponse(
+                        clientMessage,
+                        new GetValueResponse(null),
+                        PaxosLogMessageTypes.CLIENT_GET_RESPONSE
+                ));
+            }
+        });
+    }
+
+    private Message createClientResponse(Message clientMessage, Object payload, MessageType messageType) {
+        return createMessage(clientMessage.source(), clientMessage.correlationId(), payload, messageType);
     }
     
     // ========== LOG APPEND LOGIC ==========
@@ -406,53 +432,11 @@ public class PaxosLogServer extends Replica {
     private void startCommitPhase(int logIndex, int generation, Operation agreedValue, 
                                   Operation initialOperation, String clientKey) {
         System.out.println(id + ": Phase 3 - COMMIT " + agreedValue + " for index " + logIndex);
-        
-        var quorumCallback = new AsyncQuorumCallback<CommitResponse>(
-            getAllNodes().size(),
-            response -> response != null && response.success()
-        );
-        
-        quorumCallback
-            .onSuccess(responses -> {
-                System.out.println(id + ": COMMIT quorum reached for index " + logIndex);
-                
-                // Check if the agreed value is different from what we proposed
-                if (!agreedValue.equals(initialOperation)) {
-                    System.out.println(id + ": Value mismatch at index " + logIndex + 
-                                     ", retrying at next index");
-                    // Retry at next index
-                    appendToLog(logIndex + 1, initialOperation, clientKey);
-                }
-                // If values match, client will be notified when entry is executed
-            })
-            .onFailure(error -> {
-                System.out.println(id + ": COMMIT quorum failed for index " + logIndex);
-                waitingList.handleResponse(clientKey, new ExecuteCommandResponse(false, null), id);
-            });
-        
-        CommitRequest commitReq = new CommitRequest(logIndex, generation, agreedValue);
-        // Track which client request this is for
-        String indexClientKey = "index_" + logIndex + "_client";
-        waitingList.add(indexClientKey, new RequestCallback<Object>() {
-            @Override
-            public void onResponse(Object response, ProcessId fromNode) {
-                // Will be called by executeLogEntry when this index is executed
-                if (agreedValue.equals(initialOperation)) {
-                    waitingList.handleResponse(clientKey, response, fromNode);
-                }
-            }
-            
-            @Override
-            public void onError(Exception error) {
-                if (agreedValue.equals(initialOperation)) {
-                    waitingList.handleResponse(clientKey, new ExecuteCommandResponse(false, null), id);
-                }
-            }
-        });
-        
-        broadcastToAllReplicas(quorumCallback, (node, correlationId) ->
-            createMessage(node, correlationId, commitReq, PaxosLogMessageTypes.COMMIT_REQUEST)
-        );
+
+        rememberClientWaitingForCommittedIndex(logIndex, agreedValue, initialOperation, clientKey);
+
+        var quorumCallback = commitQuorumCallbackFor(logIndex, agreedValue, initialOperation, clientKey);
+        broadcastCommitFor(logIndex, generation, agreedValue, quorumCallback);
     }
     
     private void handleCommitRequest(Message message) {
@@ -468,15 +452,21 @@ public class PaxosLogServer extends Replica {
         if (paxosState.canAccept(generation)) {
             // Commit the value
             var newState = paxosState.commit(generation, value);
-            persistPaxosState(logIndex, newState);
-            
-            System.out.println(id + ": COMMITTED index " + logIndex);
-            
-            // Try to execute this entry and any subsequent committed entries
-            tryExecuteLogEntries();
-            
-            send(createMessage(message.source(), message.correlationId(),
-                new CommitResponse(true), PaxosLogMessageTypes.COMMIT_RESPONSE));
+            persistPaxosState(logIndex, newState).handle((success, error) -> {
+                if (error != null || !Boolean.TRUE.equals(success)) {
+                    send(createMessage(message.source(), message.correlationId(),
+                        new CommitResponse(false), PaxosLogMessageTypes.COMMIT_RESPONSE));
+                    return;
+                }
+
+                System.out.println(id + ": COMMITTED index " + logIndex);
+
+                // Try to execute this entry and any subsequent committed entries
+                tryExecuteLogEntries();
+
+                send(createMessage(message.source(), message.correlationId(),
+                    new CommitResponse(true), PaxosLogMessageTypes.COMMIT_RESPONSE));
+            });
         } else {
             System.out.println(id + ": REJECTED commit for index " + logIndex);
             send(createMessage(message.source(), message.correlationId(),
@@ -487,6 +477,80 @@ public class PaxosLogServer extends Replica {
     private void handleCommitResponse(Message message) {
         CommitResponse response = deserializePayload(message.payload(), CommitResponse.class);
         waitingList.handleResponse(message.correlationId(), response, message.source());
+    }
+
+    private AsyncQuorumCallback<CommitResponse> commitQuorumCallbackFor(int logIndex,
+                                                                        Operation agreedValue,
+                                                                        Operation initialOperation,
+                                                                        String clientKey) {
+        var quorumCallback = new AsyncQuorumCallback<CommitResponse>(
+            getAllNodes().size(),
+            response -> response != null && response.success()
+        );
+
+        quorumCallback
+            .onSuccess(responses -> handleCommitQuorumReached(logIndex, agreedValue, initialOperation, clientKey))
+            .onFailure(error -> handleCommitQuorumFailed(logIndex, clientKey));
+
+        return quorumCallback;
+    }
+
+    private void handleCommitQuorumReached(int logIndex,
+                                           Operation agreedValue,
+                                           Operation initialOperation,
+                                           String clientKey) {
+        System.out.println(id + ": COMMIT quorum reached for index " + logIndex);
+        durablyCommittedIndices.add(logIndex);
+
+        if (agreedValue.equals(initialOperation)) {
+            respondToClientIfCommitIsDurable(logIndex);
+            return;
+        }
+
+        clearClientCommitTracking(logIndex);
+        System.out.println(id + ": Value mismatch at index " + logIndex + ", retrying at next index");
+        appendToLog(logIndex + 1, initialOperation, clientKey);
+    }
+
+    private void handleCommitQuorumFailed(int logIndex, String clientKey) {
+        System.out.println(id + ": COMMIT quorum failed for index " + logIndex);
+        clearClientCommitTracking(logIndex);
+        waitingList.handleResponse(clientKey, new ExecuteCommandResponse(false, null), id);
+    }
+
+    private void rememberClientWaitingForCommittedIndex(int logIndex,
+                                                        Operation agreedValue,
+                                                        Operation initialOperation,
+                                                        String clientKey) {
+        pendingClientCommitsByIndex.put(logIndex, new ClientCommitContext(clientKey, agreedValue, initialOperation));
+    }
+
+    private void broadcastCommitFor(int logIndex,
+                                    int generation,
+                                    Operation agreedValue,
+                                    AsyncQuorumCallback<CommitResponse> quorumCallback) {
+        CommitRequest commitReq = new CommitRequest(logIndex, generation, agreedValue);
+        broadcastToAllReplicas(quorumCallback, (node, correlationId) ->
+            createMessage(node, correlationId, commitReq, PaxosLogMessageTypes.COMMIT_REQUEST)
+        );
+    }
+
+    private void respondToClientIfCommitIsDurable(int logIndex) {
+        ClientCommitContext clientCommitContext = pendingClientCommitsByIndex.get(logIndex);
+        ExecuteCommandResponse executedResponse = executedResponsesByIndex.get(logIndex);
+
+        if (clientCommitContext == null || executedResponse == null || !durablyCommittedIndices.contains(logIndex)) {
+            return;
+        }
+
+        waitingList.handleResponse(clientCommitContext.clientKey(), executedResponse, id);
+        clearClientCommitTracking(logIndex);
+    }
+
+    private void clearClientCommitTracking(int logIndex) {
+        pendingClientCommitsByIndex.remove(logIndex);
+        durablyCommittedIndices.remove(logIndex);
+        executedResponsesByIndex.remove(logIndex);
     }
     
     // ========== LOG EXECUTION (STATE MACHINE) ==========
@@ -542,9 +606,8 @@ public class PaxosLogServer extends Replica {
             System.out.println(id + ": Executed NO-OP");
         }
         
-        // Notify client if they're waiting for this index
-        String indexClientKey = "index_" + logIndex + "_client";
-        waitingList.handleResponse(indexClientKey, new ExecuteCommandResponse(success, result), id);
+        executedResponsesByIndex.put(logIndex, new ExecuteCommandResponse(success, result));
+        respondToClientIfCommitIsDurable(logIndex);
     }
     
     // ========== UTILITY METHODS ==========
@@ -557,7 +620,7 @@ public class PaxosLogServer extends Replica {
         }
         
         // Try to load from storage if not in cache
-        if (initialized && logStore != null) {
+        if (isInitialised() && logStore != null) {
             loadPaxosStateFromStorage(logIndex);
         }
         
@@ -566,7 +629,7 @@ public class PaxosLogServer extends Replica {
     }
     
     private void loadPaxosStateFromStorage(int logIndex) {
-        if (logStore == null || !initialized) {
+        if (logStore == null || !isInitialised()) {
             return;
         }
         byte[] key = logStore.createLogKey(PAXOS_LOG_ID, logIndex);
@@ -579,26 +642,48 @@ public class PaxosLogServer extends Replica {
         });
     }
     
-    private void persistPaxosState(int logIndex, PaxosState state) {
+    private ListenableFuture<Boolean> persistPaxosState(int logIndex, PaxosState state) {
         // Update cache
         paxosLogCache.put(logIndex, state);
         
         // Persist to storage using the log key (not append, since we update at specific index)
-        if (!initialized || logStore == null) {
+        if (!isInitialised() || logStore == null) {
             // Don't persist until initialized
-            return;
+            ListenableFuture<Boolean> future = new ListenableFuture<>();
+            future.complete(true);
+            return future;
         }
         
         byte[] stateBytes = serializePaxosState(state);
         byte[] logKey = logStore.createLogKey(PAXOS_LOG_ID, logIndex);
-        ListenableFuture<Boolean> persistFuture = storage.put(logKey, stateBytes, 
-            com.tickloom.storage.Storage.WriteOptions.SYNC);
-        persistFuture.andThen((success, error) -> {
-            if (error != null || !success) {
-                System.err.println(id + ": Failed to persist PaxosState for index " + logIndex + 
-                    (error != null ? ": " + error.getMessage() : ""));
-            }
-        });
+        ListenableFuture<Boolean> persistFuture = new ListenableFuture<>();
+        ListenableFuture<Boolean> previousPersist = pendingPersistsByIndex.put(logIndex, persistFuture);
+
+        if (previousPersist == null) {
+            startPersist(logIndex, logKey, stateBytes, persistFuture);
+            return persistFuture;
+        }
+
+        previousPersist.handle((ignored, error) ->
+            startPersist(logIndex, logKey, stateBytes, persistFuture));
+        return persistFuture;
+    }
+
+    private void startPersist(int logIndex, byte[] logKey, byte[] stateBytes, ListenableFuture<Boolean> persistFuture) {
+        storage.put(logKey, stateBytes, com.tickloom.storage.Storage.WriteOptions.SYNC)
+            .handle((success, error) -> {
+                if (error != null || !Boolean.TRUE.equals(success)) {
+                    System.err.println(id + ": Failed to persist PaxosState for index " + logIndex +
+                        (error != null ? ": " + error.getMessage() : ""));
+                    persistFuture.fail(error != null ? error : new IllegalStateException("Persist returned false"));
+                } else {
+                    persistFuture.complete(true);
+                }
+
+                if (pendingPersistsByIndex.get(logIndex) == persistFuture) {
+                    pendingPersistsByIndex.remove(logIndex);
+                }
+            });
     }
     
     private byte[] serializePaxosState(PaxosState state) {
@@ -612,6 +697,37 @@ public class PaxosLogServer extends Replica {
     }
     
     // ========== PUBLIC ACCESSORS FOR TESTING ==========
+
+    public ListenableFuture<PaxosState> getPersistedLogEntry(int logIndex) {
+        ListenableFuture<PaxosState> future = new ListenableFuture<>();
+
+        if (!isInitialised() || logStore == null) {
+            future.complete(null);
+            return future;
+        }
+
+        byte[] key = logStore.createLogKey(PAXOS_LOG_ID, logIndex);
+        storage.get(key).handle((data, error) -> {
+            if (error != null) {
+                future.fail(error);
+                return;
+            }
+
+            if (data == null) {
+                future.complete(null);
+                return;
+            }
+
+            future.complete(deserializePaxosState(data));
+        });
+
+        return future;
+    }
+
+    public boolean hasPendingPersistFor(int logIndex) {
+        ListenableFuture<Boolean> persistFuture = pendingPersistsByIndex.get(logIndex);
+        return persistFuture != null && persistFuture.isPending();
+    }
     
     public Map<Integer, PaxosState> getPaxosLog() {
         return paxosLogCache;
@@ -625,4 +741,3 @@ public class PaxosLogServer extends Replica {
         return highWaterMark;
     }
 }
-

@@ -1,4 +1,4 @@
-package com.distribpatterns.paxoslog;
+package com.distribpatterns.paxoslog.messages;
 
 /**
  * Client request to get a value from the key-value store.
