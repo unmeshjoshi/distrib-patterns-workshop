@@ -1,4 +1,4 @@
-package com.distribpatterns.quorumkv;
+package com.distribpatterns.quorumkv.messages;
 
 import java.util.Arrays;
 import java.util.Objects;

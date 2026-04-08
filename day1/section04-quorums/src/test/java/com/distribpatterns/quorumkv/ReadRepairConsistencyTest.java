@@ -16,8 +16,7 @@ import java.io.IOException;
 import java.util.List;
 
 import static com.tickloom.testkit.ClusterAssertions.assertEventually;
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Demonstrates how to use Jepsen history tracking to verify consistency properties.
@@ -28,6 +27,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 3. How to check linearizability and sequential consistency using Jepsen's Knossos checker
  */
 public class ReadRepairConsistencyTest {
+    private static final String EXPECTED_EDN_HISTORY =
+            "[{:process 0, :process-name \"alice\", :type :invoke, :f :write, :value \"Microservices\"} " +
+            "{:process 0, :process-name \"alice\", :type :ok, :f :write, :value \"Microservices\"} " +
+            "{:process 0, :process-name \"alice\", :type :invoke, :f :write, :value \"Distributed Systems\"} " +
+            "{:process 0, :process-name \"alice\", :type :ok, :f :write, :value \"Distributed Systems\"} " +
+            "{:process 0, :process-name \"alice\", :type :invoke, :f :read, :value nil} " +
+            "{:process 0, :process-name \"alice\", :type :ok, :f :read, :value \"Distributed Systems\"} " +
+            "{:process 0, :process-name \"alice\", :type :invoke, :f :read, :value nil} " +
+            "{:process 0, :process-name \"alice\", :type :ok, :f :read, :value \"Distributed Systems\"}]";
 
     private static final ProcessId ATHENS = ProcessId.of("athens");
     private static final ProcessId BYZANTIUM = ProcessId.of("byzantium");
@@ -62,9 +70,11 @@ public class ReadRepairConsistencyTest {
             // Step 1: Write initial value to all nodes
             // Pattern: invoke() -> perform operation -> ok() or fail()
             history.invoke(ALICE, Op.WRITE, v0);
+
             var write1 = alice.set(key.getBytes(), v0.getBytes());
             assertEventually(cluster, write1::isCompleted);
             assertTrue(write1.getResult().success());
+
             history.ok(ALICE, Op.WRITE, v0);
 
             // Step 2: Partition CYRENE away
@@ -75,9 +85,11 @@ public class ReadRepairConsistencyTest {
 
             // Step 3: Write new value to majority (ATHENS, BYZANTIUM)
             history.invoke(ALICE, Op.WRITE, v1);
+
             var write2 = alice.set(key.getBytes(), v1.getBytes());
             assertEventually(cluster, write2::isCompleted);
             assertTrue(write2.getResult().success());
+
             history.ok(ALICE, Op.WRITE, v1);
 
             // Step 4: Heal partition
@@ -85,10 +97,12 @@ public class ReadRepairConsistencyTest {
 
             // Step 5: Read with sync read repair - should return v1 and repair CYRENE
             history.invoke(ALICE, Op.READ, null);
+
             var read = alice.get(key.getBytes());
             assertEventually(cluster, read::isCompleted);
             assertTrue(read.getResult().found());
             assertArrayEquals(v1.getBytes(), read.getResult().value());
+
             history.ok(ALICE, Op.READ, new String(read.getResult().value()));
 
             // Step 6: Wait for sync read repair to complete
@@ -104,12 +118,8 @@ public class ReadRepairConsistencyTest {
             assertArrayEquals(v1.getBytes(), read2.getResult().value());
             history.ok(ALICE, Op.READ, new String(read2.getResult().value()));
 
-            // Step 8: Export history to EDN format and check consistency
             String edn = history.toEdn();
-            System.out.println("=== History EDN ===");
-            System.out.println(edn);
-            System.out.println("==================");
-
+            assertEquals(EXPECTED_EDN_HISTORY, edn);
             // Step 9: Check consistency properties using Jepsen's Knossos checker
             boolean linearizable = ConsistencyChecker.check(edn, ConsistencyProperty.LINEARIZABILITY, DataModel.REGISTER);
             boolean sequential = ConsistencyChecker.check(edn, ConsistencyProperty.SEQUENTIAL_CONSISTENCY, DataModel.REGISTER);

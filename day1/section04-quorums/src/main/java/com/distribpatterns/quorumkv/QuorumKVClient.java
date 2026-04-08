@@ -1,5 +1,6 @@
 package com.distribpatterns.quorumkv;
 
+import com.distribpatterns.quorumkv.messages.*;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.algorithms.replication.ClusterClient;

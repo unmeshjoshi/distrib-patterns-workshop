@@ -1,5 +1,6 @@
 package com.distribpatterns.quorumkv;
 
+import com.distribpatterns.quorumkv.messages.SetResponse;
 import com.tickloom.ConsistencyChecker;
 import com.tickloom.ConsistencyChecker.ConsistencyProperty;
 import com.tickloom.ConsistencyChecker.DataModel;

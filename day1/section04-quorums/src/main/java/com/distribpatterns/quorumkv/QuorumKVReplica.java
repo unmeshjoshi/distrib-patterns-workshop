@@ -1,5 +1,6 @@
 package com.distribpatterns.quorumkv;
 
+import com.distribpatterns.quorumkv.messages.*;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
@@ -56,29 +57,61 @@ public class QuorumKVReplica extends Replica {
 
         var quorumCallback = createGetQuorumCallback();
         quorumCallback
-                .onSuccess(
-                        responses -> {
-                            if (enableReadRepair) {
-                                var repairCallback = createSetQuorumCallback();
-                                repairCallback.onSuccess(repairResponses -> sendSuccessSetResponseToClient(correlationId, clientId, clientRequest.key()))
-                                        .onFailure(error -> sendFailureSetResponseToClient(correlationId, clientId, error, clientRequest.key()));
-
-                                broadcastToAllReplicas(quorumCallback, (node, internalCorrelationId) -> {
-                                    VersionedValue latestValue = getLatestValue(responses);
-                                    var internalRequest = new InternalSetRequest(
-                                            clientRequest.key(), latestValue.value(), latestValue.timestamp());
-                                    return createMessage(node, internalCorrelationId, internalRequest, QuorumKVMessageTypes.INTERNAL_SET_REQUEST);
-                                });
-                            }
-                            sendSuccessGetResponse(clientRequest, correlationId, clientId, responses);
-                        })
+                .onSuccess(responses -> handleSuccessfulGetRequest(clientRequest, correlationId, clientId, responses))
                 .onFailure(
                         error -> sendFailureGetResponse(clientRequest, correlationId, clientId, error));
 
-        broadcastToAllReplicas(quorumCallback, (node, internalCorrelationId) -> {
-            var internalRequest = new InternalGetRequest(clientRequest.key());
-            return createMessage(node, internalCorrelationId, internalRequest, QuorumKVMessageTypes.INTERNAL_GET_REQUEST);
-        });
+        broadcastInternalGetRequest(clientRequest, quorumCallback);
+    }
+
+    private void handleSuccessfulGetRequest(GetRequest request,
+                                            String correlationId,
+                                            ProcessId clientId,
+                                            Map<ProcessId, InternalGetResponse> responses) {
+        var latestValue = getLatestValue(responses);
+        if (!shouldRepairRead(latestValue)) {
+            sendSuccessGetResponse(request, correlationId, clientId, latestValue);
+            return;
+        }
+
+        if (asyncReadRepair) {
+            startAsyncReadRepair(request, responses);
+            sendSuccessGetResponse(request, correlationId, clientId, latestValue);
+            return;
+        }
+
+        startSynchronousReadRepair(request, responses, () -> sendSuccessGetResponse(request, correlationId, clientId, latestValue));
+    }
+
+    private boolean shouldRepairRead(VersionedValue latestValue) {
+        return enableReadRepair && latestValue != null;
+    }
+
+    private void startAsyncReadRepair(GetRequest request, Map<ProcessId, InternalGetResponse> responses) {
+        var repairCallback = createSetQuorumCallback();
+        repairCallback
+                .onSuccess(ignored -> { })
+                .onFailure(ignored -> { });
+
+        broadcastReadRepair(request, responses, repairCallback);
+    }
+
+    private void startSynchronousReadRepair(GetRequest request,
+                                            Map<ProcessId, InternalGetResponse> responses,
+                                            Runnable afterRepair) {
+        var repairCallback = createSetQuorumCallback();
+        repairCallback
+                .onSuccess(ignored -> afterRepair.run())
+                .onFailure(ignored -> afterRepair.run());
+
+        broadcastReadRepair(request, responses, repairCallback);
+    }
+
+    private void broadcastReadRepair(GetRequest request,
+                                     Map<ProcessId, InternalGetResponse> responses,
+                                     AsyncQuorumCallback<InternalSetResponse> repairCallback) {
+        var latestValue = getLatestValue(responses);
+        broadcastInternalSetRequest(request.key(), latestValue, repairCallback);
     }
 
     private VersionedValue getLatestValue(Map<ProcessId, InternalGetResponse> responses) {
@@ -87,7 +120,8 @@ public class QuorumKVReplica extends Replica {
                 .map(InternalGetResponse::value)
                 .filter(value -> value != null)
                 .map(value -> messageCodec.decode(value, VersionedValue.class))
-                .max(Comparator.comparingLong(VersionedValue::timestamp)).get();
+                .max(Comparator.comparingLong(VersionedValue::timestamp))
+                .orElse(null);
     }
 
     private AsyncQuorumCallback<InternalGetResponse> createGetQuorumCallback() {
@@ -104,12 +138,8 @@ public class QuorumKVReplica extends Replica {
     }
 
     private void sendSuccessGetResponse(GetRequest req, String correlationId, ProcessId clientAddr,
-                                        Map<ProcessId, InternalGetResponse> responses) {
-        var latestValue = getLatestValue(responses);
-
+                                        VersionedValue latestValue) {
         logSuccessfulGetResponse(req, correlationId, latestValue);
-
-        // For async read repair or no repair needed, send response immediately
         sendGetResponseToClient(req, correlationId, clientAddr, latestValue);
     }
 
@@ -155,14 +185,11 @@ public class QuorumKVReplica extends Replica {
 
         var quorumCallback = createSetQuorumCallback();
         quorumCallback.onSuccess(responses -> sendSuccessSetResponseToClient(correlationId, clientAddress, clientRequest.key()))
-                .onFailure(error -> sendFailureSetResponseToClient(correlationId, clientAddress, error, clientRequest.key()));
+                .onFailure(error -> sendFailureSetResponseToClient(correlationId, clientAddress, clientRequest.key()));
 
         var timestamp = clock.now();
-        broadcastToAllReplicas(quorumCallback, (node, internalCorrelationId) -> {
-            var internalRequest = new InternalSetRequest(
-                    clientRequest.key(), clientRequest.value(), timestamp);
-            return createMessage(node, internalCorrelationId, internalRequest, QuorumKVMessageTypes.INTERNAL_SET_REQUEST);
-        });
+        var versionedValue = new VersionedValue(clientRequest.value(), timestamp);
+        broadcastInternalSetRequest(clientRequest.key(), versionedValue, quorumCallback);
     }
 
     private void logIncomingSetRequest(SetRequest req, String correlationId, ProcessId clientAddr) {
@@ -186,20 +213,13 @@ public class QuorumKVReplica extends Replica {
         send(responseMessage);
     }
 
-    private void sendFailureSetResponseToClient(String correlationId, ProcessId clientAddr, Throwable error, byte[] key) {
+    private void sendFailureSetResponseToClient(String correlationId, ProcessId clientAddr, byte[] key) {
         var response = new SetResponse(key, false);
 
         var responseMessage = createMessage(clientAddr, correlationId, response, QuorumKVMessageTypes.CLIENT_SET_RESPONSE);
 
         send(responseMessage);
     }
-
-
-    private void logFailedSetResponse(SetRequest req, String correlationId, Throwable error) {
-        System.out.println("QuorumKVReplica: Failed SET response - keyLength: " + req.key().length +
-                ", correlationId: " + correlationId + ", error: " + error.getMessage());
-    }
-
     // Internal request handlers
 
     private void handleInternalGetRequest(Message message) {
@@ -254,19 +274,28 @@ public class QuorumKVReplica extends Replica {
                 sendInternalSetResponse(message, false, error, setRequest);
                 return;
             }
-            if (result != null) {
-                VersionedValue existingValue = messageCodec.decode(result, VersionedValue.class);
-                if (existingValue.timestamp() >= value.timestamp()) {
-                    //Already set with higher timestamp, so we return true, but dont overwrite the value.
-                    sendInternalSetResponse(message, true, null, setRequest);
-                    return;
-                }
+            if (!shouldOverwriteExistingValue(result, value)) {
+                //Already set with higher timestamp, so we return true, but dont overwrite the value.
+                sendInternalSetResponse(message, true, null, setRequest);
+                return;
             }
-            // Perform local storage operation
-            var future = storage.put(setRequest.key(), messageCodec.encode(value));
-            future.handle((success, setError)
-                    -> sendInternalSetResponse(message, success, setError, setRequest));
+            storeVersionedValue(message, setRequest, value);
         });
+    }
+
+    private boolean shouldOverwriteExistingValue(byte[] existingEncodedValue, VersionedValue newValue) {
+        if (existingEncodedValue == null) {
+            return true;
+        }
+
+        VersionedValue existingValue = messageCodec.decode(existingEncodedValue, VersionedValue.class);
+        return existingValue.timestamp() < newValue.timestamp();
+    }
+
+    private void storeVersionedValue(Message message, InternalSetRequest setRequest, VersionedValue value) {
+        var future = storage.put(setRequest.key(), messageCodec.encode(value));
+        future.handle((success, setError)
+                -> sendInternalSetResponse(message, success, setError, setRequest));
     }
 
     private void sendInternalSetResponse(Message message, Boolean success, Throwable error, InternalSetRequest setRequest) {
@@ -312,5 +341,20 @@ public class QuorumKVReplica extends Replica {
         waitingList.handleResponse(message.correlationId(), response, message.source());
     }
 
-}
+    private void broadcastInternalGetRequest(GetRequest request, AsyncQuorumCallback<InternalGetResponse> quorumCallback) {
+        broadcastToAllReplicas(quorumCallback, (node, internalCorrelationId) -> {
+            var internalRequest = new InternalGetRequest(request.key());
+            return createMessage(node, internalCorrelationId, internalRequest, QuorumKVMessageTypes.INTERNAL_GET_REQUEST);
+        });
+    }
 
+    private void broadcastInternalSetRequest(byte[] key,
+                                             VersionedValue value,
+                                             AsyncQuorumCallback<InternalSetResponse> quorumCallback) {
+        broadcastToAllReplicas(quorumCallback, (node, internalCorrelationId) -> {
+            var internalRequest = new InternalSetRequest(key, value.value(), value.timestamp());
+            return createMessage(node, internalCorrelationId, internalRequest, QuorumKVMessageTypes.INTERNAL_SET_REQUEST);
+        });
+    }
+
+}

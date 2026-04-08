@@ -1,13 +1,13 @@
-package com.distribpatterns.quorumkv;
+package com.distribpatterns.quorumkv.messages;
 
 import java.util.Arrays;
 import java.util.Objects;
 
 /**
- * Client request to get a value for a specific key.
+ * Internal request sent between replicas to get a value for a specific key.
  */
-public record GetRequest(byte[] key) {
-    public GetRequest {
+public record InternalGetRequest(byte[] key) {
+    public InternalGetRequest {
         Objects.requireNonNull(key, "Key cannot be null");
         if (key.length == 0) {
             throw new IllegalArgumentException("Key cannot be empty");
@@ -18,18 +18,18 @@ public record GetRequest(byte[] key) {
     public boolean equals(Object obj) {
         if (this == obj) return true;
         if (obj == null || getClass() != obj.getClass()) return false;
-        GetRequest that = (GetRequest) obj;
+        InternalGetRequest that = (InternalGetRequest) obj;
         return Arrays.equals(key, that.key);
     }
 
     @Override
     public int hashCode() {
-        return Arrays.hashCode(key);
+        return Objects.hash(Arrays.hashCode(key));
     }
 
     @Override
     public String toString() {
-        return "GetRequest{keyLength=" + key.length + "}";
+        return "InternalGetRequest{keyLength=" + key.length + "'}";
     }
 }
 

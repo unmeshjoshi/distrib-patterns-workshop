@@ -1,5 +1,7 @@
 package com.distribpatterns.quorumkv;
 
+import com.distribpatterns.quorumkv.messages.GetResponse;
+import com.distribpatterns.quorumkv.messages.QuorumKVMessageTypes;
 import com.tickloom.ProcessId;
 import com.tickloom.future.ListenableFuture;
 import com.tickloom.testkit.ClusterTest;
