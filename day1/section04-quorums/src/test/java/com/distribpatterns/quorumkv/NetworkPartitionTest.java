@@ -196,8 +196,10 @@ public class NetworkPartitionTest {
             // Step 1: majority-side write of initialValue; cluster converges on v0
             history.invoke(ProcessId.of("majority_client"), Op.WRITE, initialValue);
             var initialSet = majorityClient.set(key.getBytes(), initialValue.getBytes());
-            assertEventually(cluster, completesSuccessfully(initialSet));
+            cluster.tickUntilComplete(initialSet);
+
             assertAllNodeStoragesContainValue(cluster, key.getBytes(), initialValue.getBytes());
+
             history.ok(ProcessId.of("majority_client"), Op.WRITE, initialValue);
 
             // Step 2: partition cluster into minority (2) and majority (3)
@@ -215,8 +217,7 @@ public class NetworkPartitionTest {
             cluster.setTimeForProcess(CYRENE, athensTs - SKEW_TICKS);
 
             history.invoke(ProcessId.of("majority_client"), Op.WRITE, majorityValue);
-            var majorityWrite = majorityClient.set(key.getBytes(), majorityValue.getBytes());
-            assertEventually(cluster, completesSuccessfully(majorityWrite));
+            cluster.tickUntilComplete(majorityClient.set(key.getBytes(), majorityValue.getBytes()));
             history.ok(ProcessId.of("majority_client"), Op.WRITE, majorityValue);
 
             // Step 5: heal partitions; higher timestamp (minority) should prevail cluster-wide
@@ -235,7 +236,18 @@ public class NetworkPartitionTest {
             //   partition while a successful majority write also occurred. There is no placement respecting real-time precedence.
             // - Sequential consistency fails: even ignoring real-time order, no single serial order yields the observed read.
             String edn = history.toEdn();
-            System.out.println("edn = " + edn);
+            String expectedEdn = """
+                    [{:process 0, :process-name "majority_client", :type :invoke, :f :write, :value "genesis_block"}
+                     {:process 0, :process-name "majority_client", :type :ok, :f :write, :value "genesis_block"}
+                     {:process 1, :process-name "minority_client", :type :invoke, :f :write, :value "minority_attempt"}
+                     {:process 1, :process-name "minority_client", :type :fail, :f :write, :value "minority_attempt"}
+                     {:process 0, :process-name "majority_client", :type :invoke, :f :write, :value "majority_success"}
+                     {:process 0, :process-name "majority_client", :type :ok, :f :write, :value "majority_success"}
+                     {:process 1, :process-name "minority_client", :type :invoke, :f :read, :value nil}
+                     {:process 1, :process-name "minority_client", :type :ok, :f :read, :value "minority_attempt"}]
+                    """.trim();
+            assertEquals(normalizeWhitespace(expectedEdn), normalizeWhitespace(edn));
+
             boolean linearizable = ConsistencyChecker.check(edn, ConsistencyProperty.LINEARIZABILITY, DataModel.REGISTER);
             assertFalse(linearizable, "History should be non-linearizable: failed write took effect");
 
@@ -248,5 +260,8 @@ public class NetworkPartitionTest {
         return () -> w2.isCompleted() && w2.getResult().success();
     }
 
-}
+    private static String normalizeWhitespace(String value) {
+        return value.replaceAll("\\s+", " ").trim();
+    }
 
+}
