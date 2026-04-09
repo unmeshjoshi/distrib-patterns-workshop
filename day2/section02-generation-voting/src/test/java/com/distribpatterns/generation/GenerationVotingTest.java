@@ -4,6 +4,7 @@ import com.distribpatterns.generation.messages.NextGenerationResponse;
 import com.tickloom.ProcessId;
 import com.tickloom.future.ListenableFuture;
 import com.tickloom.testkit.Cluster;
+import com.tickloom.testkit.NodeGroup;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -32,32 +33,46 @@ public class GenerationVotingTest {
     private static final ProcessId CLIENT = ProcessId.of("client");
     
     @Test
-    @DisplayName("Happy Path: Generate monotonically increasing numbers with 3 nodes")
+    @DisplayName("Majority available: generations stay monotonic across changing partitions")
     void testGenerateMonotonicNumbers() throws IOException {
-        try (var cluster = Cluster.create(List.of(ATHENS, BYZANTIUM, CYRENE), (peerIds, processParams) -> new GenerationVotingServer(peerIds, processParams))) {
+        try (var cluster = new Cluster()
+                .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
+                .useSimulatedNetwork()
+                .build( (peerIds, processParams) -> new GenerationVotingServer(peerIds, processParams))
+                .start()) {
             waitUntilAllNodesInitialised(cluster);
 
-            var client = cluster.newClientConnectedTo(CLIENT, ATHENS, GenerationVotingClient::new);
-            
-            // Request 1: Should get generation 1
-            NextGenerationResponse response1 = cluster.tickUntilComplete(client.getNextGeneration(ATHENS));
-            
+            var athensClient = cluster.newClientConnectedTo(CLIENT, ATHENS, GenerationVotingClient::new);
+            var cyreneClient = cluster.newClientConnectedTo(ProcessId.of("client2"), CYRENE, GenerationVotingClient::new);
+
+            // Isolate CYRENE; ATHENS and BYZANTIUM still form a majority.
+            cluster.partitionNodes(NodeGroup.of(ATHENS, BYZANTIUM), NodeGroup.of(CYRENE));
+            NextGenerationResponse response1 = cluster.tickUntilComplete(athensClient.getNextGeneration(ATHENS));
             assertEquals(1, response1.generation(), "First generation should be 1");
-            
-            // Verify all nodes have generation 1
-            assertGenerationOnAllNodes(cluster, 1);
-            
-            // Request 2: Should get generation 2
-            NextGenerationResponse response2 = cluster.tickUntilComplete(client.getNextGeneration(ATHENS));
-            
+            assertEquals(1, cluster.<GenerationVotingServer>getNode(ATHENS).getGeneration());
+            assertEquals(1, cluster.<GenerationVotingServer>getNode(BYZANTIUM).getGeneration());
+
+            cluster.healAllPartitions();
+
+            // Isolate ATHENS; BYZANTIUM and CYRENE still form a majority.
+            // Use BYZANTIUM as coordinator because it already knows generation 1
+            // and can propose generation 2 directly.
+            cluster.partitionNodes(NodeGroup.of(CYRENE, BYZANTIUM), NodeGroup.of(ATHENS));
+            NextGenerationResponse response2 = cluster.tickUntilComplete(cyreneClient.getNextGeneration(BYZANTIUM));
             assertEquals(2, response2.generation(), "Second generation should be 2");
-            assertGenerationOnAllNodes(cluster, 2);
-            
-            // Request 3: Should get generation 3
-            NextGenerationResponse response3 = cluster.tickUntilComplete(client.getNextGeneration(ATHENS));
-            
+            assertEquals(2, cluster.<GenerationVotingServer>getNode(CYRENE).getGeneration());
+            assertEquals(2, cluster.<GenerationVotingServer>getNode(BYZANTIUM).getGeneration());
+
+            cluster.healAllPartitions();
+
+            // Isolate BYZANTIUM; ATHENS and CYRENE still form a majority.
+            // Use CYRENE as coordinator because it already knows generation 2
+            // and can propose generation 3 directly.
+            cluster.partitionNodes(NodeGroup.of(ATHENS, CYRENE), NodeGroup.of(BYZANTIUM));
+            NextGenerationResponse response3 = cluster.tickUntilComplete(cyreneClient.getNextGeneration(CYRENE));
             assertEquals(3, response3.generation(), "Third generation should be 3");
-            assertGenerationOnAllNodes(cluster, 3);
+            assertEquals(3, cluster.<GenerationVotingServer>getNode(ATHENS).getGeneration());
+            assertEquals(3, cluster.<GenerationVotingServer>getNode(CYRENE).getGeneration());
         }
     }
 
