@@ -16,9 +16,13 @@ import java.util.Optional;
  * - Once a value is committed, it cannot change
  */
 public record PaxosState(
-    long promisedGeneration,               // Highest generation we've promised not to accept lower generations
+    long promisedGeneration,// Highest generation we've promised not to accept lower generations
+
+    //Saved with the generation of the leader.
     Optional<Long> acceptedGeneration, // Generation of the value we've accepted (but not committed)
     Optional<Operation> acceptedValue,    // The value we've accepted (but not committed)
+
+
     Optional<Operation> committedValue    // The value we've committed and executed
 ) {
     

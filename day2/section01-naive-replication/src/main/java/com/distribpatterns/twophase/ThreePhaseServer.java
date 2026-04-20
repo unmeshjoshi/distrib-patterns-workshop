@@ -11,6 +11,7 @@ import com.distribpatterns.twophase.messages.TwoPhaseMessageTypes;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
+import com.tickloom.future.ListenableFuture;
 import com.tickloom.messaging.AsyncQuorumCallback;
 import com.tickloom.messaging.Message;
 import com.tickloom.messaging.MessageType;
@@ -22,6 +23,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Predicate;
 
 /**
  * Three-Phase Commit Server with coordinator failure recovery.
@@ -76,16 +78,27 @@ public class ThreePhaseServer extends Replica {
         String queryId = java.util.UUID.randomUUID().toString();
         System.out.println(id + ": Starting three-phase execution with query phase " + queryId);
 
-        var quorumCallback = new AsyncQuorumCallback<QueryResponse>(
-            getAllNodes().size(),
-            response -> response != null
-        );
+        //Phase 0: Query for pending accepted requests
 
-        quorumCallback
-            .onSuccess(responses -> handleQueryQuorumReached(clientMessage, responses.values()))
-            .onFailure(error -> failClientRequest(clientMessage, error));
+        //Phase 0→1: Analyze query responses, then proceed to accept phase
 
-        sendQueryToAll(queryId, quorumCallback);
+        sendQueryToAll(queryId)
+                .andThen(queryResponses -> analyzeAndAccept(queryResponses, clientMessage))
+                .whenComplete((acceptResponses, error) -> {
+                    sendCommitToAll(clientMessage, acceptResponses, error);
+                });
+    }
+
+    private void sendCommitToAll(Message clientMessage, Map<ProcessId, AcceptResponse> acceptResponses, Throwable error) {
+        if (error != null) {
+            System.out.println(id + ": Protocol failed: " + error.getMessage());
+            sendClientExecuteResponse(clientMessage, new ExecuteResponse(false, 0));
+            return;
+        }
+        //Phase 2: Commit — all phases completed successfully
+        String requestId = acceptResponses.values().iterator().next().transactionId();
+        System.out.println(id + ": ACCEPT quorum reached for " + requestId + ", sending COMMIT");
+        sendCommitToAll(requestId);
     }
 
     private void registerClientCompletionCallback(Message clientMessage, String requestId) {
@@ -117,20 +130,19 @@ public class ThreePhaseServer extends Replica {
         });
     }
 
-    private void handleQueryQuorumReached(
-        Message clientMessage,
-        Collection<QueryResponse> queryResponses
+    private ListenableFuture<Map<ProcessId, AcceptResponse>> analyzeAndAccept(
+            Map<ProcessId, QueryResponse> queryResponses,
+            Message clientMessage
     ) {
         System.out.println(id + ": Query quorum reached, analyzing responses");
 
-        Optional<QueryResponse> highestPending = highestPendingRequestIn(queryResponses);
+        Optional<QueryResponse> highestPending = highestPendingRequestIn(queryResponses.values());
         if (highestPending.isPresent()) {
-            enterRecoveryMode(highestPending.get());
-            return;
+            return enterRecoveryMode(highestPending.get());
         }
 
         System.out.println(id + ": Normal mode - no pending requests found");
-        proceedWithTwoPhaseCommit(clientMessage);
+        return proceedWithAcceptPhase(clientMessage);
     }
 
     // Choose the highest request id as a deterministic recovery tie-breaker.
@@ -142,29 +154,30 @@ public class ThreePhaseServer extends Replica {
             .max((left, right) -> left.pendingRequestId().compareTo(right.pendingRequestId()));
     }
 
-    private void enterRecoveryMode(QueryResponse pendingRequest) {
+    private ListenableFuture<Map<ProcessId, AcceptResponse>> enterRecoveryMode(QueryResponse pendingRequest) {
+        String recoveredRequestId = pendingRequest.pendingRequestId();
+        Operation recoveredOperation = pendingRequest.pendingOperation();
+
         System.out.println(id + ": RECOVERY MODE - Found pending request " +
-            pendingRequest.pendingRequestId() + ", completing it first");
+            recoveredRequestId + ", completing it first");
         System.out.println(id + ": Ignoring new client request during recovery");
 
-        completeRecoveredRequest(pendingRequest);
+        return sendAcceptToAll(recoveredRequestId, recoveredOperation);
     }
 
-    private void failClientRequest(Message clientMessage, Throwable error) {
-        System.out.println(id + ": Query quorum failed: " + error.getMessage());
-        sendClientExecuteResponse(clientMessage, new ExecuteResponse(false, 0));
-    }
+    private ListenableFuture<Map<ProcessId, QueryResponse>> sendQueryToAll(String queryId) {
+        var quorumCallback = new AsyncQuorumCallback<QueryResponse>(
+            getAllNodes().size(),
+            response -> response != null
+        );
 
-    private void sendQueryToAll(
-        String queryId,
-        AsyncQuorumCallback<QueryResponse> quorumCallback
-    ) {
         QueryRequest queryReq = new QueryRequest(queryId);
         broadcastToAllReplicas(quorumCallback, (node, correlationId) ->
             createMessage(node, correlationId, queryReq, TwoPhaseMessageTypes.QUERY_REQUEST)
         );
 
         System.out.println(id + ": Sent QUERY to " + getAllNodes().size() + " nodes");
+        return quorumCallback.getQuorumFuture();
     }
     
     // Phase 0: Participant receives QUERY request
@@ -209,85 +222,32 @@ public class ThreePhaseServer extends Replica {
         waitingList.handleResponse(message.correlationId(), response, message.source());
     }
     
-    private void completeRecoveredRequest(QueryResponse pending) {
-        String recoveredRequestId = pending.pendingRequestId();
-        Operation recoveredOperation = pending.pendingOperation();
-
-        System.out.println(id + ": Acting as new coordinator for recovered request " + recoveredRequestId);
-        System.out.println(id + ": Re-running full two-phase protocol for recovery");
-        
-        // IMPORTANT: We must re-run Phase 1 (ACCEPT) to ensure quorum
-        // Even though some nodes may have already accepted, the old coordinator crashed
-        // before completing the protocol. We need fresh quorum confirmation.
-        
-        // Create quorum callback for ACCEPT responses
-        var quorumCallback = new AsyncQuorumCallback<AcceptResponse>(
-            getAllNodes().size(),
-            response -> response != null && response.accepted()
-        );
-        
-        quorumCallback
-            .onSuccess(responses -> {
-                System.out.println(id + ": Recovery ACCEPT quorum reached for " + recoveredRequestId + 
-                                 ", sending COMMIT");
-                sendCommitToAll(recoveredRequestId);
-                
-                // After commit completes, we're done with recovery
-                // The ignored client request would be queued/retried in production
-            })
-            .onFailure(error -> {
-                System.out.println(id + ": Recovery ACCEPT quorum failed for " + recoveredRequestId + 
-                                 ": " + error.getMessage());
-                // In full 3PC, would need to send ABORT here
-                // For now, just log the failure
-            });
-        
-        // Phase 1: Broadcast ACCEPT for the recovered operation
-        AcceptRequest acceptReq = new AcceptRequest(recoveredRequestId, recoveredOperation);
-        broadcastToAllReplicas(quorumCallback, (node, correlationId) ->
-            createMessage(node, correlationId, acceptReq, TwoPhaseMessageTypes.ACCEPT_REQUEST)
-        );
-        
-        System.out.println(id + ": Sent recovery ACCEPT to " + getAllNodes().size() + " nodes");
-        
-        // Note: We're ignoring the client request in recovery mode
-        // In production, might queue it for after recovery completes
-    }
-    
-    private void proceedWithTwoPhaseCommit(Message clientMessage) {
+    private ListenableFuture<Map<ProcessId, AcceptResponse>> proceedWithAcceptPhase(Message clientMessage) {
         String requestId = java.util.UUID.randomUUID().toString();
         registerClientCompletionCallback(clientMessage, requestId);
 
         System.out.println(id + ": Starting Phase 1 (ACCEPT) for request " + requestId);
-        
-        // Create quorum callback for ACCEPT responses
+
+        var request = deserializePayload(clientMessage.payload(), ExecuteRequest.class);
+        return sendAcceptToAll(requestId, request.operation());
+    }
+
+    private ListenableFuture<Map<ProcessId, AcceptResponse>> sendAcceptToAll(
+            String requestId,
+            Operation operation
+    ) {
         var quorumCallback = new AsyncQuorumCallback<AcceptResponse>(
             getAllNodes().size(),
             response -> response != null && response.accepted()
         );
-        
-        quorumCallback
-            .onSuccess(responses -> {
-                System.out.println(id + ": ACCEPT quorum reached for " + requestId + ", sending COMMIT");
-                // COMMIT carries only the request id, not the operation itself.
-                // This assumes every node receiving COMMIT has already stored the operation
-                // during the ACCEPT phase. A node that misses ACCEPT cannot execute COMMIT
-                // without an additional recovery / catch-up mechanism. Later modules add that.
-                sendCommitToAll(requestId);
-            })
-            .onFailure(error -> {
-                System.out.println(id + ": ACCEPT quorum failed for " + requestId + ": " + error.getMessage());
-                waitingList.handleResponse(requestId, new ExecuteResponse(false, 0), id);
-            });
-        
-        // Phase 1: Broadcast ACCEPT to all nodes
-        var request = deserializePayload(clientMessage.payload(), ExecuteRequest.class);
-        AcceptRequest acceptReq = new AcceptRequest(requestId, request.operation());
+
+        AcceptRequest acceptReq = new AcceptRequest(requestId, operation);
         broadcastToAllReplicas(quorumCallback, (node, correlationId) ->
             createMessage(node, correlationId, acceptReq, TwoPhaseMessageTypes.ACCEPT_REQUEST)
         );
-        
+
         System.out.println(id + ": Sent ACCEPT to " + getAllNodes().size() + " nodes");
+        return quorumCallback.getQuorumFuture();
     }
     
     // Phase 1: Participant receives ACCEPT request

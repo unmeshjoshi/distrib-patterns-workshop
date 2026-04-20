@@ -442,7 +442,7 @@ public class RaftServer extends Replica {
 
     private void broadcastRequestVote(AsyncQuorumCallback<RequestVoteResponse> quorumCallback) {
         RequestVoteRequest request = new RequestVoteRequest(
-            currentTerm,
+            currentTerm, //gneration number
             id,
             getLastLogIndex(),
             getLastLogTerm()

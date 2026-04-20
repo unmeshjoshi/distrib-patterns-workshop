@@ -47,7 +47,7 @@ public class PaxosServer extends Replica {
     @Override
     protected ListenableFuture<?> onInit() {
         // Load initial state using standardized method
-        return load(PAXOS_STATE_KEY, PaxosState.class).handle((loadedState, error) -> {
+        return load(PAXOS_STATE_KEY, PaxosState.class).whenComplete((loadedState, error) -> {
             if (error != null) {
                 System.err.println(id + ": Failed to load PaxosState: " + error.getMessage());
                 return;
@@ -127,7 +127,7 @@ public class PaxosServer extends Replica {
                                    Map<ProcessId, PrepareResponse> promises, int attempt) {
         // Paxos key insight: Choose the value with the highest accepted generation,
         // or use client's value if none were accepted
-        Operation valueToPropose = selectValueToPropose(clientMessage.operation(), promises);
+        Operation valueToPropose = selectRequestOperationToPropose(clientMessage.operation(), promises);
 
         System.out.println(id + ": Phase 2 - PROPOSE value " + valueToPropose + " with generation " + generation);
 
@@ -205,8 +205,8 @@ public class PaxosServer extends Replica {
     }
 
     // ========== PHASE 2: PROPOSE/ACCEPT ==========
-    private Operation selectValueToPropose(Operation clientOperation,
-                                           Map<ProcessId, PrepareResponse> promises) {
+    private Operation selectRequestOperationToPropose(Operation clientOperation,
+                                                      Map<ProcessId, PrepareResponse> promises) {
         // Find the promise with the highest accepted generation
         Optional<PrepareResponse> highestAccepted = promises.values().stream()
                 .filter(p -> p.acceptedGeneration() != null)

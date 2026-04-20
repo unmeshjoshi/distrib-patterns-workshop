@@ -71,7 +71,13 @@ public class PaxosLogTest {
                 BYZANTIUM,
                 new SetValueOperation(AUTHOR_KEY, "Martin")
             ));
+
             assertSuccessfulCommand(secondResponse);
+
+            cluster.tickUntilComplete(client.execute(
+                    BYZANTIUM,
+                    new CompareAndSwapOperation(AUTHOR_KEY, "Martin", "Martin Fowler")
+            ));
             
             PaxosLogServer athens = getServer(cluster, ATHENS);
             assertHighWaterMarkOnAllReplicas(cluster, 1);

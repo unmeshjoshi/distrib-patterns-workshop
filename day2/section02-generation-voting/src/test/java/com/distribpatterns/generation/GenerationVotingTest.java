@@ -73,6 +73,21 @@ public class GenerationVotingTest {
             assertEquals(3, response3.generation(), "Third generation should be 3");
             assertEquals(3, cluster.<GenerationVotingServer>getNode(ATHENS).getGeneration());
             assertEquals(3, cluster.<GenerationVotingServer>getNode(CYRENE).getGeneration());
+
+            NextGenerationResponse response4 = cluster.tickUntilComplete(cyreneClient.getNextGeneration(CYRENE));
+            assertEquals(4, response4.generation(), "Fourth generation should be 4");
+            assertEquals(4, cluster.<GenerationVotingServer>getNode(ATHENS).getGeneration());
+            assertEquals(4, cluster.<GenerationVotingServer>getNode(CYRENE).getGeneration());
+            assertEquals(2, cluster.<GenerationVotingServer>getNode(BYZANTIUM).getGeneration());
+
+            cluster.healAllPartitions();
+            cluster.partitionNodes(NodeGroup.of(CYRENE, BYZANTIUM), NodeGroup.of(ATHENS));
+
+            //Byzantium gen = 2. It proposed gen = 3
+            NextGenerationResponse response5 = cluster.tickUntilComplete(cyreneClient.getNextGeneration(BYZANTIUM));
+            assertEquals(5, response5.generation(), "Fifth generation should be 5");
+
+
         }
     }
 

@@ -110,6 +110,8 @@ class LogStoreTest {
         logStore.append("shardC", "entry5".getBytes());
         logStore.append("shardC", "entry6".getBytes());
 
+
+
         // Verify lastLogIndexes are correctly retrieved using lowerKey
         assertEquals(4L, logStore.getLastLogIndex("shardA"));
         assertEquals(2L, logStore.getLastLogIndex("shardB"));

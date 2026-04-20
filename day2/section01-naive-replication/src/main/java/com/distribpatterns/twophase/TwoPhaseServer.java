@@ -9,6 +9,7 @@ import com.distribpatterns.twophase.messages.TwoPhaseMessageTypes;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
+import com.tickloom.future.ListenableFuture;
 import com.tickloom.messaging.AsyncQuorumCallback;
 import com.tickloom.messaging.Message;
 import com.tickloom.messaging.MessageType;
@@ -18,6 +19,7 @@ import com.tickloom.network.PeerType;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 
 /**
  * Two-Phase Commit Server implementing consensus-based replication.
@@ -72,23 +74,19 @@ public class TwoPhaseServer extends Replica {
     }
 
     private void coordinateTwoPhaseExecution(String requestId, ExecuteRequest request) {
-        var quorumCallback = new AsyncQuorumCallback<AcceptResponse>(
-                getAllNodes().size(),
-                response -> response != null && response.accepted()
-        );
+        //send accept request and get quorum future
+        ListenableFuture<Map<ProcessId, AcceptResponse>> acceptFuture =
+                sendAcceptToAll(requestId, request);
 
-        quorumCallback
-                .onSuccess(responses -> {
-                    System.out.println(id + ": Quorum reached for txn " + requestId + ", sending COMMIT");
-                    //send commit request.
-                    sendCommitToAll(requestId);
-                })
-                .onFailure(error -> {
-                    System.out.println(id + ": Quorum failed for txn " + requestId + ": " + error.getMessage());
-                });
-
-        //send accept request
-        sendAcceptToAll(requestId, request, quorumCallback);
+        acceptFuture.whenComplete((responses, error) -> {
+            if (error != null) {
+                System.out.println(id + ": Quorum failed for txn " + requestId + ": " + error.getMessage());
+                return;
+            }
+            System.out.println(id + ": Quorum reached for txn " + requestId + ", sending COMMIT");
+            //send commit request.
+            sendCommitToAll(requestId);
+        });
     }
 
     // Phase 1: Participant receives ACCEPT request
@@ -175,17 +173,29 @@ public class TwoPhaseServer extends Replica {
         System.out.println(id + ": Sent ACCEPT response for txn " + request.transactionId());
     }
 
-    private void sendAcceptToAll(
+    protected ListenableFuture<Map<ProcessId, AcceptResponse>> sendAcceptToAll(
             String requestId,
-            ExecuteRequest request,
-            AsyncQuorumCallback<AcceptResponse> quorumCallback
+            ExecuteRequest request
     ) {
-        AcceptRequest acceptReq = new AcceptRequest(requestId, request.operation());
+        return sendAcceptToAll(requestId, request.operation());
+    }
+
+    protected ListenableFuture<Map<ProcessId, AcceptResponse>> sendAcceptToAll(
+            String requestId,
+            Operation operation
+    ) {
+        var quorumCallback = new AsyncQuorumCallback<AcceptResponse>(
+                getAllNodes().size(),
+                response -> response != null && response.accepted()
+        );
+
+        AcceptRequest acceptReq = new AcceptRequest(requestId, operation);
         broadcastToAllReplicas(quorumCallback, (node, correlationId) ->
                 createMessage(node, correlationId, acceptReq, TwoPhaseMessageTypes.ACCEPT_REQUEST)
         );
 
         System.out.println(id + ": Sent ACCEPT to " + getAllNodes().size() + " nodes");
+        return quorumCallback.getQuorumFuture();
     }
 
     // Phase 2: All participants receive COMMIT and execute

@@ -6,7 +6,6 @@ import com.tickloom.testkit.Cluster;
 
 import java.io.IOException;
 import java.util.Arrays;
-import java.util.List;
 
 import static com.tickloom.testkit.ClusterAssertions.assertAllNodeStoragesContainValue;
 import static com.tickloom.testkit.ClusterAssertions.assertEventually;
@@ -20,9 +19,6 @@ final class QuorumTestSupport {
     static final ProcessId CYRENE = ProcessId.of("cyrene");
     static final ProcessId ALICE = ProcessId.of("alice");
 
-    static final ProcessFactory DEFAULT_REPLICA_FACTORY =
-            (peerIds, processParams) -> new QuorumKVReplica(peerIds, processParams);
-
     static final ProcessFactory SYNC_READ_REPAIR_FACTORY =
             (peerIds, processParams) -> new QuorumKVReplica(peerIds, processParams, true, false);
 
@@ -32,25 +28,8 @@ final class QuorumTestSupport {
     private QuorumTestSupport() {
     }
 
-    static Cluster newCluster(ProcessFactory factory) throws IOException {
-        return new Cluster()
-                .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
-                .useSimulatedNetwork()
-                .build(factory)
-                .start();
-    }
-
-    static QuorumKVClient newClient(Cluster cluster) throws IOException {
-        return newClient(cluster, ALICE, ATHENS);
-    }
-
     static QuorumKVClient newClient(Cluster cluster, ProcessId clientId, ProcessId connectedReplica) throws IOException {
         return cluster.newClientConnectedTo(clientId, connectedReplica, QuorumKVClient::new);
-    }
-
-    static void assertSuccessfulWrite(Cluster cluster, QuorumKVClient client, byte[] key, byte[] value) {
-        var response = cluster.tickUntilComplete(client.set(key, value));
-        assertTrue(response.success(), "Write should succeed");
     }
 
     static void assertWriteFails(Cluster cluster, QuorumKVClient client, byte[] key, byte[] value) {
