@@ -1,6 +1,88 @@
 // Root build file for distributed patterns workshop
 // This configuration applies to all day sections and their subprojects
 
+// ---------- TLA+ / TLC model checking ----------
+
+def tlcVersion = '1.7.4'
+def tlcJar     = file("${buildDir}/tlc/tla2tools.jar")
+def tlaDir     = file('tla')
+
+tasks.register('downloadTLC') {
+    description = 'Download tla2tools.jar (once)'
+    group = 'tla'
+    outputs.file(tlcJar)
+
+    doLast {
+        tlcJar.parentFile.mkdirs()
+        def url = "https://github.com/tlaplus/tlaplus/releases/download/v${tlcVersion}/tla2tools.jar"
+        println "Downloading tla2tools.jar v${tlcVersion}..."
+        new URL(url).withInputStream { is -> tlcJar.withOutputStream { os -> os << is } }
+        println "Saved to ${tlcJar}"
+    }
+}
+
+// Run a single spec:  gradle tlc -Pspec=DurableDecision
+tasks.register('tlc', JavaExec) {
+    description = 'Run TLC on a single spec (use -Pspec=SpecName)'
+    group = 'tla'
+    dependsOn 'downloadTLC'
+
+    doFirst {
+        def specName = project.findProperty('spec')
+        if (!specName) {
+            throw new GradleException('Specify the spec: -Pspec=<Name>  e.g. -Pspec=DurableDecision')
+        }
+        if (!file("${tlaDir}/${specName}.tla").exists()) {
+            throw new GradleException("Spec not found: tla/${specName}.tla")
+        }
+        file("${buildDir}/tla/${specName}").mkdirs()
+    }
+
+    classpath = files(tlcJar)
+    mainClass = 'tlc2.TLC'
+    ignoreExitValue = true  // broken specs exit non-zero when they find violations — that's expected
+
+    argumentProviders.add({
+        def specName = project.findProperty('spec') ?: ''
+        [
+            '-config',   "${tlaDir}/${specName}.cfg".toString(),
+            '-metadir',  "${buildDir}/tla/${specName}".toString(),
+            '-terse',
+            '-cleanup',
+            "${tlaDir}/${specName}.tla".toString()
+        ]
+    } as CommandLineArgumentProvider)
+}
+
+// Run all specs:  gradle tlcAll
+tasks.register('tlcAll') {
+    description = 'Run TLC on every spec in tla/'
+    group = 'tla'
+    dependsOn 'downloadTLC'
+
+    doLast {
+        fileTree(tlaDir).matching { include '*.cfg' }.files.each { cfgFile ->
+            def specName = cfgFile.name.replace('.cfg', '')
+            def outDir = file("${buildDir}/tla/${specName}")
+            outDir.mkdirs()
+
+            println "\n========== TLC: ${specName} =========="
+            javaexec {
+                classpath = files(tlcJar)
+                mainClass = 'tlc2.TLC'
+                args = [
+                    '-config',  cfgFile.absolutePath,
+                    '-metadir', outDir.absolutePath,
+                    '-terse',
+                    '-cleanup',
+                    file("${tlaDir}/${specName}.tla").absolutePath
+                ]
+                ignoreExitValue = true  // broken specs are expected to fail
+            }
+        }
+    }
+}
+
 // Configure all subprojects (including nested ones)
 subprojects {
     apply plugin: 'java'

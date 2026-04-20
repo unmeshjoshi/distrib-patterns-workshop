@@ -32,6 +32,7 @@ distrib-patterns-workshop/
 │   ├── section02-failures/
 │   ├── section03-wal/
 │   └── section04-quorums/
+├── tla/                          # TLA+ specs and model configs
 └── day2/
     ├── section01-naive-replication/
     ├── section02-generation-voting/
@@ -58,6 +59,25 @@ distrib-patterns-workshop/
 - **section05-multipaxos** - Stable-leader Multi-Paxos optimization
 - **section06-multipaxos-heartbeats** - Heartbeats and leader failure detection for Multi-Paxos
 - **section07-raft** - Raft leader election, log replication, and commit safety rules
+
+### TLA+ Specifications
+
+The `tla/` directory contains TLA+ specs that model key patterns from the workshop.
+TLC (the TLA+ model checker) is downloaded automatically on first run.
+
+```bash
+# Run a single spec
+./gradlew tlc -Pspec=DurableDecision
+
+# Run all specs
+./gradlew tlcAll
+```
+
+| Spec | What it models | Expected result |
+|------|---------------|-----------------|
+| `DurableDecision` | Correct pattern: decide from memory, respond after durable write | Passes all invariants |
+| `BrokenDurableDecision` | Bug: respond before storage write completes | Violation: `ResponseImpliesDurable` |
+| `BrokenStorageWriteAndValidate` | Bug: validate against stale storage state instead of memory | Violation: `NoConcurrentPromises` |
 
 See per-section READMEs for detailed instructions.
 
