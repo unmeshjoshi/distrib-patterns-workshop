@@ -10,7 +10,8 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.util.List;
 
-import static com.tickloom.testkit.ClusterAssertions.assertAllNodeStoragesContainValue;
+import static com.distribpatterns.quorumkv.QuorumTestSupport.assertReplicasEventuallyHaveValue;
+import static com.distribpatterns.quorumkv.QuorumTestSupport.storedValue;
 import static com.tickloom.testkit.ClusterAssertions.assertEventually;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -48,7 +49,7 @@ public class SimpleReadRepairTest {
             assertTrue(write1.getResult().success());
             
             // Verify all nodes have it
-            assertAllNodeStoragesContainValue(cluster, key, value1);
+            assertReplicasEventuallyHaveValue(cluster, List.of(ATHENS, BYZANTIUM, CYRENE), key, value1);
             System.out.println("All nodes have v1");
 
             // Partition CYRENE
@@ -66,7 +67,7 @@ public class SimpleReadRepairTest {
             assertTrue(write2.getResult().success());
             
             // Check CYRENE still has v1
-            VersionedValue valueCBefore = cluster.getDecodedStoredValue(CYRENE, key, VersionedValue.class);
+            VersionedValue valueCBefore = storedValue(cluster, CYRENE, key);
             System.out.println("CYRENE value before read: " + new String(valueCBefore.value()) + 
                 " (timestamp: " + valueCBefore.timestamp() + ")");
             assertArrayEquals(value1, valueCBefore.value());
@@ -86,7 +87,7 @@ public class SimpleReadRepairTest {
             System.out.println("=== Waiting for repair to propagate ===");
             for (int i = 0; i < 100; i++) {
                 cluster.tick();
-                VersionedValue valueC = cluster.getDecodedStoredValue(CYRENE, key, VersionedValue.class);
+                VersionedValue valueC = storedValue(cluster, CYRENE, key);
                 if (valueC != null && java.util.Arrays.equals(value2, valueC.value())) {
                     System.out.println("CYRENE repaired after " + i + " ticks!");
                     break;
@@ -98,7 +99,7 @@ public class SimpleReadRepairTest {
             }
 
             // Check if CYRENE was repaired
-            VersionedValue valueCAfter = cluster.getDecodedStoredValue(CYRENE, key, VersionedValue.class);
+            VersionedValue valueCAfter = storedValue(cluster, CYRENE, key);
             System.out.println("CYRENE value after read: " + 
                 (valueCAfter != null ? new String(valueCAfter.value()) + " (ts: " + valueCAfter.timestamp() + ")" : "null"));
             
@@ -108,4 +109,3 @@ public class SimpleReadRepairTest {
         }
     }
 }
-

@@ -79,7 +79,7 @@ public final class DDIA_Linearizability_And_Quorum_ScenarioTest
 
         // Seed initial state across the cluster (no delays yet) so everyone agrees on "PLACED"
         write(withWriter(orderStatusUpdater, key, vOld));
-        assertNodesContainValue(List.of(ATHENS, BYZANTIUM, CYRENE), key, vOld);
+        assertStoredValues(List.of(ATHENS, BYZANTIUM, CYRENE), key, vOld);
 
         // Introduce *per-link delay* from ATHENS -> (BYZANTIUM, CYRENE)
         // This holds back propagation of the upgrade write for ~PROP_DELAY_TICKS.
@@ -88,14 +88,14 @@ public final class DDIA_Linearizability_And_Quorum_ScenarioTest
         // Writer upgrades to SHIPPED via ATHENS. ATHENS applies promptly; others are delayed.
         // We need to wait until the value is available on ATHENS.
         writeAndWaitUntil(withWriter(orderStatusUpdater, key, vNew), () -> {
-            VersionedValue storageValue = cluster.getDecodedStoredValue(ATHENS, key, VersionedValue.class);
+            VersionedValue storageValue = QuorumTestSupport.storedValue(cluster, ATHENS, key);
             if (null == storageValue) return false;
             return Arrays.equals(vNew, storageValue.value());
         });
 
         // Sanity: immediately after the write, ATHENS has vNew while others still have vOld
-        assertNodesContainValue(List.of(ATHENS), key, vNew);
-        assertNodesContainValue(List.of(BYZANTIUM, CYRENE), key, vOld);
+        assertStoredValues(List.of(ATHENS), key, vNew);
+        assertStoredValues(List.of(BYZANTIUM, CYRENE), key, vOld);
 
 
         //make sure byzatium is partitioned away from CYRENE, so it gets the values from itself and ATHENS
@@ -107,13 +107,13 @@ public final class DDIA_Linearizability_And_Quorum_ScenarioTest
         // so Alice returns the NEW value.
         read(withReader(alice, key)); // → vNew
 
-        assertNodesContainValue(List.of(BYZANTIUM, CYRENE), key, vOld); //BYZANTIUM and CYRENE still have vOld
+        assertStoredValues(List.of(BYZANTIUM, CYRENE), key, vOld); //BYZANTIUM and CYRENE still have vOld
 
         //make sure byzatium is partitioned away from athens, so it can only form majority with cyrene
         cluster.reconnectProcess(BYZANTIUM);
         partition(NodeGroup.of(BYZANTIUM), NodeGroup.of(ATHENS));
 
-        assertNodesContainValue(List.of(BYZANTIUM, CYRENE), key, vOld); //BYZANTIUM and CYRENE still have vOld
+        assertStoredValues(List.of(BYZANTIUM, CYRENE), key, vOld); //BYZANTIUM and CYRENE still have vOld
 
         // --- B O B ---
         // Bob reads via BYZANTIUM, whose quorum (e.g., {BYZANTIUM, CYRENE}) is still OLD at this instant,
@@ -123,19 +123,21 @@ public final class DDIA_Linearizability_And_Quorum_ScenarioTest
         // Let delayed messages arrive; replicas converge.
         assertEventually(() -> {
            return List.of(ATHENS, BYZANTIUM, CYRENE).stream().allMatch(node -> {
-                return getNodeValue(node, key).isPresent() && Arrays.equals(vNew, getNodeValue(node, key).get());
+                var storedValue = QuorumTestSupport.storedValue(cluster, node, key);
+                return storedValue != null && Arrays.equals(vNew, storedValue.value());
             });
         });
 
-        assertEquals("[{:process 0, :process-name \"writer\", :type :invoke, :f :write, :value \"x=0\"} " +
-                        "{:process 0, :process-name \"writer\", :type :ok, :f :write, :value \"x=0\"} " +
-                        "{:process 0, :process-name \"writer\", :type :invoke, :f :write, :value \"x=1\"} " +
-                        "{:process 1, :process-name \"alice\", :type :invoke, :f :read, :value nil} " +
-                        "{:process 1, :process-name \"alice\", :type :ok, :f :read, :value \"x=1\"} " +
-                        "{:process 2, :process-name \"bob\", :type :invoke, :f :read, :value nil} " +
-                        "{:process 2, :process-name \"bob\", :type :ok, :f :read, :value \"x=0\"} " +
-                        "{:process 0, :process-name \"writer\", :type :ok, :f :write, :value \"x=1\"}]",
-                getHistory().toEdn());
+        var expectedHistory = "[{:process 0, :process-name \"writer\", :type :invoke, :f :write, :value \"x=0\"} " +
+                "{:process 0, :process-name \"writer\", :type :ok, :f :write, :value \"x=0\"} " +
+                "{:process 0, :process-name \"writer\", :type :invoke, :f :write, :value \"x=1\"} " +
+                "{:process 1, :process-name \"alice\", :type :invoke, :f :read, :value nil} " +
+                "{:process 1, :process-name \"alice\", :type :ok, :f :read, :value \"x=1\"} " +
+                "{:process 2, :process-name \"bob\", :type :invoke, :f :read, :value nil} " +
+                "{:process 2, :process-name \"bob\", :type :ok, :f :read, :value \"x=0\"} " +
+                "{:process 0, :process-name \"writer\", :type :ok, :f :write, :value \"x=1\"}]";
+        assertEventually(() -> expectedHistory.equals(getHistory().toEdn()));
+        assertEquals(expectedHistory, getHistory().toEdn());
         // Consistency verdicts:
         // Later Bob saw older → not linearizable.
         assertLinearizability(false);
@@ -167,5 +169,11 @@ public final class DDIA_Linearizability_And_Quorum_ScenarioTest
             }
         };
     }
-}
 
+    private void assertStoredValues(List<ProcessId> nodes, byte[] key, byte[] expectedValue) {
+        assertEventually(() -> nodes.stream().allMatch(node -> {
+            var storedValue = QuorumTestSupport.storedValue(cluster, node, key);
+            return storedValue != null && Arrays.equals(expectedValue, storedValue.value());
+        }));
+    }
+}

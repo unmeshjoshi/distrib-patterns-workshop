@@ -17,6 +17,8 @@ import java.io.IOException;
 import java.util.List;
 import java.util.function.BooleanSupplier;
 
+import static com.distribpatterns.quorumkv.QuorumTestSupport.assertReplicasEventuallyHaveValue;
+import static com.distribpatterns.quorumkv.QuorumTestSupport.storedValue;
 import static com.tickloom.testkit.ClusterAssertions.*;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -54,7 +56,7 @@ public class NetworkPartitionTest {
             var initialSet = majorityClient.set(key, initialValue);
             assertEventually(cluster, initialSet::isCompleted);
             assertTrue(initialSet.getResult().success(), "Initial write should succeed");
-            assertAllNodeStoragesContainValue(cluster, key, initialValue);
+            assertReplicasEventuallyHaveValue(cluster, List.of(ATHENS, BYZANTIUM, CYRENE, DELPHI, SPARTA), key, initialValue);
 
             // phase 2 — partition 2 vs 3
             var minority = NodeGroup.of(ATHENS, BYZANTIUM);
@@ -64,12 +66,12 @@ public class NetworkPartitionTest {
             // phase 3 — minority write fails for client (no quorum) but persists locally
             var minorityWrite = minorityClient.set(key, minorityValue);
             assertEventually(cluster, minorityWrite::isFailed);
-            assertNodesContainValue(cluster, List.of(ATHENS, BYZANTIUM), key, minorityValue);
+            assertReplicasEventuallyHaveValue(cluster, List.of(ATHENS, BYZANTIUM), key, minorityValue);
 
             // phase 4 — majority write succeeds in its partition
             var majorityWrite = majorityClient.set(key, majorityValue);
             assertEventually(cluster, completesSuccessfully(majorityWrite));
-            assertNodesContainValue(cluster, List.of(CYRENE, DELPHI, SPARTA), key, majorityValue);
+            assertReplicasEventuallyHaveValue(cluster, List.of(CYRENE, DELPHI, SPARTA), key, majorityValue);
 
             // phase 5 — heal and verify final value (majority value should win without skew)
             cluster.healAllPartitions();
@@ -118,7 +120,7 @@ public class NetworkPartitionTest {
 
             // Step 4: different client performs local read on ATHENS (single-node read), sees stale v0
             history.invoke(ProcessId.of("client2"), Op.READ, null);
-            var vv = cluster.getDecodedStoredValue(ATHENS, key.getBytes(), VersionedValue.class);
+            var vv = storedValue(cluster, ATHENS, key.getBytes());
             assertNotNull(vv);
             assertArrayEquals(v0.getBytes(), vv.value());
             history.ok(ProcessId.of("client2"), Op.READ, new String(vv.value()));
@@ -198,7 +200,7 @@ public class NetworkPartitionTest {
             var initialSet = majorityClient.set(key.getBytes(), initialValue.getBytes());
             cluster.tickUntilComplete(initialSet);
 
-            assertAllNodeStoragesContainValue(cluster, key.getBytes(), initialValue.getBytes());
+            assertReplicasEventuallyHaveValue(cluster, List.of(ATHENS, BYZANTIUM, CYRENE, DELPHI, SPARTA), key.getBytes(), initialValue.getBytes());
 
             history.ok(ProcessId.of("majority_client"), Op.WRITE, initialValue);
 
@@ -209,11 +211,11 @@ public class NetworkPartitionTest {
             history.invoke(ProcessId.of("minority_client"), Op.WRITE, minorityValue);
             var minorityWrite = minorityClient.set(key.getBytes(), minorityValue.getBytes());
             assertEventually(cluster, minorityWrite::isFailed);
-            assertNodesContainValue(cluster, List.of(ATHENS, BYZANTIUM), key.getBytes(), minorityValue.getBytes());
+            assertReplicasEventuallyHaveValue(cluster, List.of(ATHENS, BYZANTIUM), key.getBytes(), minorityValue.getBytes());
             history.fail(ProcessId.of("minority_client"), Op.WRITE, minorityValue);
 
             // Step 4: skew majority clock behind minority; majority write now has lower timestamp
-            var athensTs = cluster.getDecodedStoredValue(ATHENS, key.getBytes(), VersionedValue.class).timestamp();
+            var athensTs = storedValue(cluster, ATHENS, key.getBytes()).timestamp();
             cluster.setTimeForProcess(CYRENE, athensTs - SKEW_TICKS);
 
             history.invoke(ProcessId.of("majority_client"), Op.WRITE, majorityValue);

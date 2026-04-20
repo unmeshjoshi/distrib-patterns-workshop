@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.util.List;
 
+import static com.distribpatterns.quorumkv.QuorumTestSupport.storedValue;
 import static com.tickloom.testkit.ClusterAssertions.assertEventually;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -107,7 +108,7 @@ public class ReadRepairConsistencyTest {
 
             // Step 6: Wait for sync read repair to complete
             assertEventually(cluster, () -> {
-                var valueC = cluster.getDecodedStoredValue(CYRENE, key.getBytes(), VersionedValue.class);
+                var valueC = storedValue(cluster, CYRENE, key.getBytes());
                 return valueC != null && java.util.Arrays.equals(v1.getBytes(), valueC.value());
             });
 

@@ -1,13 +1,14 @@
 package com.distribpatterns.quorumkv;
 
+import com.tickloom.Process;
 import com.tickloom.ProcessFactory;
 import com.tickloom.ProcessId;
 import com.tickloom.testkit.Cluster;
 
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.List;
 
-import static com.tickloom.testkit.ClusterAssertions.assertAllNodeStoragesContainValue;
 import static com.tickloom.testkit.ClusterAssertions.assertEventually;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -48,15 +49,16 @@ final class QuorumTestSupport {
     }
 
     static void assertAllReplicasEventuallyHaveValue(Cluster cluster, byte[] key, byte[] expectedValue) {
-        cluster.tickUntil(() ->
-                replicaHasValue(cluster, ATHENS, key, expectedValue)
-                        && replicaHasValue(cluster, BYZANTIUM, key, expectedValue)
-                        && replicaHasValue(cluster, CYRENE, key, expectedValue));
-        assertAllNodeStoragesContainValue(cluster, key, expectedValue);
+        assertReplicasEventuallyHaveValue(cluster, List.of(ATHENS, BYZANTIUM, CYRENE), key, expectedValue);
+    }
+
+    static void assertReplicasEventuallyHaveValue(Cluster cluster, List<ProcessId> nodes, byte[] key, byte[] expectedValue) {
+        cluster.tickUntil(() -> nodes.stream().allMatch(node -> replicaHasValue(cluster, node, key, expectedValue)));
     }
 
     static VersionedValue storedValue(Cluster cluster, ProcessId node, byte[] key) {
-        return cluster.getDecodedStoredValue(node, key, VersionedValue.class);
+        QuorumKVReplica process = (QuorumKVReplica) cluster.getProcess(node);
+        return process.getDecodedValue(key);
     }
 
     static void waitForTicks(Cluster cluster, int tickCount) {

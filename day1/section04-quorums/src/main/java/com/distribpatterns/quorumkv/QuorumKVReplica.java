@@ -9,9 +9,7 @@ import com.tickloom.messaging.AsyncQuorumCallback;
 import com.tickloom.messaging.Message;
 import com.tickloom.messaging.MessageType;
 
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Quorum-based replica implementation for distributed key-value store.
@@ -20,7 +18,34 @@ import java.util.Map;
  * Based on the quorum consensus algorithm where operations require majority
  * agreement from replicas before completing successfully.
  */
+
+class Key implements Comparable<Key> {
+    private final byte[] key;
+
+    Key(byte[] key) {
+        this.key = key;
+    }
+
+    @Override
+    public int compareTo(Key o) {
+        return Arrays.compareUnsigned(key, o.key);
+    }
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        Key key1 = (Key) o;
+        return Arrays.equals(key, key1.key);
+    }
+    @Override
+    public int hashCode() {
+        return Arrays.hashCode(key);
+    }
+}
+
 public class QuorumKVReplica extends Replica {
+
+    Map<Key, byte[]> kv = new TreeMap<Key, byte[]>();
 
     private final boolean enableReadRepair;
     private final boolean asyncReadRepair;
@@ -226,11 +251,8 @@ public class QuorumKVReplica extends Replica {
         var getRequest = deserializePayload(message.payload(), InternalGetRequest.class);
         System.out.println("QuorumKVReplica: Processing internal GET request - keyLength: " + getRequest.key().length
                 + ", from: " + message.source());
-        // Perform local storage operation
-        var future = storage.get(getRequest.key());
-        future.whenComplete((value, error) -> {
-            sendInternalGetResponse(message, value, error, getRequest);
-        });
+        byte[] bytes = kv.get(new Key(getRequest.key()));
+        sendInternalGetResponse(message, bytes, null, getRequest);
     }
 
     private void sendInternalGetResponse(Message incomingMessage, byte[] value, Throwable error, InternalGetRequest getRequest) {
@@ -267,20 +289,15 @@ public class QuorumKVReplica extends Replica {
                 ", valueLength: " + setRequest.value().length + ", timestamp: " + setRequest.timestamp() +
                 ", from: " + message.source());
 
-        //First get the value and set only if it does not exist or its of lower timestamp.
-        ListenableFuture<byte[]> getFuture = storage.get(setRequest.key());
-        getFuture.whenComplete((result, error) -> {
-            if (error != null) {
-                sendInternalSetResponse(message, false, error, setRequest);
-                return;
-            }
-            if (!shouldOverwriteExistingValue(result, value)) {
-                //Already set with higher timestamp, so we return true, but dont overwrite the value.
-                sendInternalSetResponse(message, true, null, setRequest);
-                return;
-            }
-            storeVersionedValue(message, setRequest, value);
-        });
+
+        byte[] bytes = kv.get(new Key(setRequest.key()));
+        if (!shouldOverwriteExistingValue(bytes, value)) {
+            //Already set with higher timestamp, so we return true, but dont overwrite the value.
+            sendInternalSetResponse(message, true, null, setRequest);
+            return;
+        }
+        kv.put(new Key(setRequest.key()), messageCodec.encode(value));
+        sendInternalSetResponse(message, true, null, setRequest);
     }
 
     private boolean shouldOverwriteExistingValue(byte[] existingEncodedValue, VersionedValue newValue) {
@@ -290,12 +307,6 @@ public class QuorumKVReplica extends Replica {
 
         VersionedValue existingValue = messageCodec.decode(existingEncodedValue, VersionedValue.class);
         return existingValue.timestamp() < newValue.timestamp();
-    }
-
-    private void storeVersionedValue(Message message, InternalSetRequest setRequest, VersionedValue value) {
-        var future = storage.put(setRequest.key(), messageCodec.encode(value));
-        future.whenComplete((success, setError)
-                -> sendInternalSetResponse(message, success, setError, setRequest));
     }
 
     private void sendInternalSetResponse(Message message, Boolean success, Throwable error, InternalSetRequest setRequest) {
@@ -357,4 +368,11 @@ public class QuorumKVReplica extends Replica {
         });
     }
 
+    public VersionedValue getDecodedValue(byte[] key) {
+        byte[] data = kv.get(new Key(key));
+        if (data == null) {
+            return null;
+        }
+        return messageCodec.decode(data, VersionedValue.class);
+    }
 }

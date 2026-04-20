@@ -1,5 +1,6 @@
 package com.distribpatterns.quorumkv;
 
+import com.tickloom.ProcessId;
 import com.tickloom.testkit.Cluster;
 import com.tickloom.testkit.NodeGroup;
 import org.junit.jupiter.api.DisplayName;
@@ -8,7 +9,6 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.util.List;
 
-import static com.tickloom.testkit.ClusterAssertions.assertNodesContainValue;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static com.distribpatterns.quorumkv.QuorumTestSupport.*;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -119,9 +119,17 @@ public class QuorumBasicScenariosTest {
             var response = cluster.tickUntilComplete(alice.set(key, newValue));
             assertTrue(response.success(), "Write should succeed");
 
-            assertNodesContainValue(cluster, List.of(ATHENS, BYZANTIUM), key, newValue);
-            assertNodesContainValue(cluster, List.of(CYRENE), key, value);
+            assertQuorumReplicaContainsValue(cluster, List.of(ATHENS, BYZANTIUM), key, newValue);
+            assertQuorumReplicaContainsValue(cluster, List.of(CYRENE), key, value);
         }
+    }
+
+    private void assertQuorumReplicaContainsValue(Cluster cluster, List<ProcessId> processes, byte[] key, byte[] value) {
+        processes.stream().forEach(processId -> {
+            QuorumKVReplica node = cluster.getNode(processId);
+            VersionedValue decodedValue = node.getDecodedValue(key);
+            assertArrayEquals(value, decodedValue.value());
+        });
     }
 
     @Test
