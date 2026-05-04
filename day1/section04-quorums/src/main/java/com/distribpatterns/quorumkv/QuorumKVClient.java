@@ -4,7 +4,7 @@ import com.distribpatterns.quorumkv.messages.*;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.algorithms.replication.ClusterClient;
-import com.tickloom.future.ListenableFuture;
+import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.messaging.Message;
 import com.tickloom.messaging.MessageType;
 
@@ -17,14 +17,14 @@ public class QuorumKVClient extends ClusterClient {
         super(replicaEndpoints, processParams);
     }
     
-    public ListenableFuture<GetResponse> get(byte[] key) {
+    public TickCompletableFuture<GetResponse> get(byte[] key) {
         GetRequest request = new GetRequest(key);
         ProcessId primaryReplica = firstReplica();
         
         return sendRequest(request, primaryReplica, QuorumKVMessageTypes.CLIENT_GET_REQUEST);
     }
     
-    public ListenableFuture<SetResponse> set(byte[] key, byte[] value) {
+    public TickCompletableFuture<SetResponse> set(byte[] key, byte[] value) {
         SetRequest request = new SetRequest(key, value);
         ProcessId primaryReplica = firstReplica();
         

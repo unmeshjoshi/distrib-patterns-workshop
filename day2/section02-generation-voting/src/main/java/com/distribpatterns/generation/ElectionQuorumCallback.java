@@ -2,7 +2,7 @@ package com.distribpatterns.generation;
 
 import com.distribpatterns.generation.messages.PrepareResponse;
 import com.tickloom.ProcessId;
-import com.tickloom.future.ListenableFuture;
+import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.messaging.RequestCallback;
 
 import java.util.HashMap;
@@ -21,7 +21,7 @@ class ElectionQuorumCallback implements RequestCallback<PrepareResponse> {
     private final int quorum;
     private final long proposedGeneration;
     private final Map<ProcessId, PrepareResponse> responses = new HashMap<>();
-    private final ListenableFuture<Map<ProcessId, PrepareResponse>> quorumFuture = new ListenableFuture<>();
+    private final TickCompletableFuture<Map<ProcessId, PrepareResponse>> quorumFuture = new TickCompletableFuture<>();
 
     private int promises = 0;
     private int rejections = 0;
@@ -67,7 +67,7 @@ class ElectionQuorumCallback implements RequestCallback<PrepareResponse> {
         }
     }
 
-    public ListenableFuture<Map<ProcessId, PrepareResponse>> getQuorumFuture() {
+    public TickCompletableFuture<Map<ProcessId, PrepareResponse>> getQuorumFuture() {
         return quorumFuture;
     }
 }

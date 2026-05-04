@@ -3,7 +3,7 @@ package com.distribpatterns.quorumkv;
 import com.distribpatterns.quorumkv.messages.GetResponse;
 import com.distribpatterns.quorumkv.messages.QuorumKVMessageTypes;
 import com.tickloom.ProcessId;
-import com.tickloom.future.ListenableFuture;
+import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.testkit.ClusterTest;
 import com.tickloom.testkit.NodeGroup;
 import org.junit.jupiter.api.DisplayName;
@@ -160,7 +160,7 @@ public final class DDIA_Linearizability_And_Quorum_ScenarioTest
     private static ClusterTest.Reader<QuorumKVClient, GetResponse, String> withReader(QuorumKVClient reconnectedClient2, byte[] key) {
         return new ClusterTest.Reader<>(reconnectedClient2) {
             @Override
-            public Supplier<ListenableFuture<GetResponse>> getSupplier() {
+            public Supplier<TickCompletableFuture<GetResponse>> getSupplier() {
                 return () -> reconnectedClient2.get(key);
             }
         };
@@ -175,7 +175,7 @@ public final class DDIA_Linearizability_And_Quorum_ScenarioTest
             }
 
             @Override
-            public Supplier<ListenableFuture<?>> getSupplier() {
+            public Supplier<TickCompletableFuture<?>> getSupplier() {
                 return () -> client2.set(key, value);
             }
         };

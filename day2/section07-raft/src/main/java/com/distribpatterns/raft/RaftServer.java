@@ -4,7 +4,6 @@ import com.distribpatterns.raft.messages.*;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
-import com.tickloom.messaging.AsyncQuorumCallback;
 import com.tickloom.messaging.Message;
 import com.tickloom.messaging.MessageType;
 import com.tickloom.messaging.RequestCallback;
@@ -417,40 +416,25 @@ public class RaftServer extends Replica {
 
         System.out.println(id + ": Starting election for term " + currentTerm);
 
-        var quorumCallback = requestVoteQuorumCallback();
-        broadcastRequestVote(quorumCallback);
-    }
-
-    private AsyncQuorumCallback<RequestVoteResponse> requestVoteQuorumCallback() {
-        var quorumCallback = new AsyncQuorumCallback<RequestVoteResponse>(
-            getAllNodes().size(),
-            response -> response != null && response.voteGranted()
-        );
-
-        quorumCallback.onSuccess(responses -> {
-            if (state == RaftState.CANDIDATE) {
-                becomeLeader();
-            }
-        });
-
-        quorumCallback.onFailure(error ->
-            System.out.println(id + ": Election failed: " + error.getMessage())
-        );
-
-        return quorumCallback;
-    }
-
-    private void broadcastRequestVote(AsyncQuorumCallback<RequestVoteResponse> quorumCallback) {
         RequestVoteRequest request = new RequestVoteRequest(
-            currentTerm, //gneration number
+            currentTerm,
             id,
             getLastLogIndex(),
             getLastLogTerm()
         );
 
-        broadcastToAllReplicas(quorumCallback, (node, correlationId) ->
-            createMessage(node, correlationId, request, RaftMessageTypes.REQUEST_VOTE_REQUEST)
-        );
+        this.<RequestVoteResponse>quorumRequest()
+                .acceptResponseWhen(response -> response != null && response.voteGranted())
+                .withMessage((node, correlationId) ->
+                        createMessage(node, correlationId, request, RaftMessageTypes.REQUEST_VOTE_REQUEST))
+                .send()
+                .whenComplete((responses, error) -> {
+                    if (error != null) {
+                        System.out.println(id + ": Election failed: " + error.getMessage());
+                    } else if (state == RaftState.CANDIDATE) {
+                        becomeLeader();
+                    }
+                });
     }
 
     // ========== STATE TRANSITIONS ==========

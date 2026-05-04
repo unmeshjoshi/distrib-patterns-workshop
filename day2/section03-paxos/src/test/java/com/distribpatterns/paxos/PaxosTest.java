@@ -2,7 +2,7 @@ package com.distribpatterns.paxos;
 
 import com.distribpatterns.paxos.messages.ExecuteResponse;
 import com.tickloom.ProcessId;
-import com.tickloom.future.ListenableFuture;
+import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.testkit.Cluster;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -73,10 +73,10 @@ public class PaxosTest {
             var aliceClient = cluster.newClientConnectedTo(CLIENT_ALICE, ATHENS, PaxosClient::new);
             var bobClient = cluster.newClientConnectedTo(CLIENT_BOB, BYZANTIUM, PaxosClient::new);
 
-            ListenableFuture<ExecuteResponse> aliceFuture = aliceClient.execute(ATHENS,
+            TickCompletableFuture<ExecuteResponse> aliceFuture = aliceClient.execute(ATHENS,
                     new SetValueOperation(TITLE_KEY, "Microservices"));
 
-            ListenableFuture<ExecuteResponse> bobFuture = bobClient.execute(BYZANTIUM,
+            TickCompletableFuture<ExecuteResponse> bobFuture = bobClient.execute(BYZANTIUM,
                     new SetValueOperation(TITLE_KEY, "Distributed Systems"));
 
             cluster.tickUntilComplete(aliceFuture);
@@ -91,8 +91,8 @@ public class PaxosTest {
         }
     }
 
-    private static void assertExactlyOneClientRequestSucceeds(ListenableFuture<ExecuteResponse> aliceFuture,
-                                                              ListenableFuture<ExecuteResponse> bobFuture) {
+    private static void assertExactlyOneClientRequestSucceeds(TickCompletableFuture<ExecuteResponse> aliceFuture,
+                                                              TickCompletableFuture<ExecuteResponse> bobFuture) {
         ExecuteResponse aliceResult = aliceFuture.getResult();
         ExecuteResponse bobResult = bobFuture.getResult();
         boolean aliceSucceeded = aliceResult.success();

@@ -4,7 +4,7 @@ import com.distribpatterns.raft.messages.*;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.algorithms.replication.ClusterClient;
-import com.tickloom.future.ListenableFuture;
+import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.messaging.Message;
 import com.tickloom.messaging.MessageType;
 
@@ -17,7 +17,7 @@ import java.util.Map;
  */
 public class RaftClient extends ClusterClient {
     
-    private Map<String, ListenableFuture<GetValueResponse>> pendingGetFutures = new HashMap<>();
+    private Map<String, TickCompletableFuture<GetValueResponse>> pendingGetFutures = new HashMap<>();
     
     public RaftClient(List<ProcessId> replicaEndpoints, ProcessParams processParams) {
         super(replicaEndpoints, processParams);
@@ -31,12 +31,12 @@ public class RaftClient extends ClusterClient {
         return handlers;
     }
     
-    public ListenableFuture<ExecuteCommandResponse> execute(ProcessId serverId, Operation operation) {
+    public TickCompletableFuture<ExecuteCommandResponse> execute(ProcessId serverId, Operation operation) {
         return sendRequest(new ExecuteCommandRequest(operation), serverId,
                           RaftMessageTypes.CLIENT_EXECUTE_REQUEST);
     }
     
-    public ListenableFuture<GetValueResponse> getValue(ProcessId serverId, String key) {
+    public TickCompletableFuture<GetValueResponse> getValue(ProcessId serverId, String key) {
         return sendRequest(new GetValueRequest(key), serverId,
                           RaftMessageTypes.CLIENT_GET_REQUEST);
     }

@@ -73,7 +73,7 @@ public class OptimizedWriteAheadLog {
      * Append an entry to the WAL.
      *
      * Note: Because entries are buffered in memory before being flushed to disk,
-     * this method could return a ListenableFuture<Long> that completes when the
+     * this method could return a TickCompletableFuture<Long> that completes when the
      * entry is actually fsynced to durable storage. This would allow callers to:
      * - Continue processing without blocking on disk I/O
      * - Be notified when their specific write is durable

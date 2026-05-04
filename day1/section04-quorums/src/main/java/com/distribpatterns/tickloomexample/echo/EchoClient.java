@@ -4,7 +4,7 @@ import com.distribpatterns.tickloomexample.echo.EchoMessages.EchoResponse;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.algorithms.replication.ClusterClient;
-import com.tickloom.future.ListenableFuture;
+import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.messaging.MessageType;
 
 import java.util.List;
@@ -19,7 +19,7 @@ public class EchoClient extends ClusterClient {
         super(replicaEndpoints, processParams);
     }
 
-    public ListenableFuture<EchoResponse> echo(ProcessId server, String text) {
+    public TickCompletableFuture<EchoResponse> echo(ProcessId server, String text) {
         EchoMessages.EchoRequest req = new EchoMessages.EchoRequest(text);
         return sendRequest(req, server, ECHO_REQUEST);
     }

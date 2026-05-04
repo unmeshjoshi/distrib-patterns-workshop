@@ -12,7 +12,6 @@ import com.tickloom.ProcessId
 import com.tickloom.ProcessParams
 import com.tickloom.Replica
 import com.tickloom.future.await
-import com.tickloom.messaging.AsyncQuorumCallback
 import com.tickloom.messaging.Message
 import com.tickloom.messaging.MessageType
 import com.tickloom.network.PeerType
@@ -21,7 +20,7 @@ import kotlin.coroutines.createCoroutine
 import kotlin.coroutines.resume
 
 /**
- * TwoPhaseServer using Kotlin coroutines + tickloom's ListenableFuture.await().
+ * TwoPhaseServer using Kotlin coroutines + tickloom's TickCompletableFuture.await().
  *
  * The coordinator flow reads linearly:
  *   awaitAcceptQuorum(requestId, request)
@@ -47,18 +46,18 @@ class TwoPhaseServerExample(peerIds: MutableList<ProcessId>, processParams: Proc
     // =====================================================================
 
     private suspend fun awaitAcceptQuorum(requestId: String, request: ExecuteRequest): Map<ProcessId, AcceptResponse> {
-        val quorumCallback = AsyncQuorumCallback<AcceptResponse>(allNodes.size) {
-            response -> response != null && response.accepted()
-        }
         val acceptReq = AcceptRequest(requestId, request.operation())
-        broadcastToAllReplicas(quorumCallback) { node, correlationId ->
-            createMessage(node, correlationId, acceptReq, TwoPhaseMessageTypes.ACCEPT_REQUEST)
-        }
-        return quorumCallback.quorumFuture.await()
+        return quorumRequest<AcceptResponse>()
+            .acceptResponseWhen { response -> response != null && response.accepted() }
+            .withMessage { node, correlationId ->
+                createMessage(node, correlationId, acceptReq, TwoPhaseMessageTypes.ACCEPT_REQUEST)
+            }
+            .send()
+            .await()
     }
 
     private suspend fun awaitLocalCommitExecution(requestId: String, trigger: () -> Unit): ExecuteResponse {
-        val future = com.tickloom.future.ListenableFuture<ExecuteResponse>()
+        val future = com.tickloom.future.TickCompletableFuture<ExecuteResponse>()
         waitingList.add(requestId, object : com.tickloom.messaging.RequestCallback<Any> {
             override fun onResponse(response: Any, fromNode: ProcessId) {
                 future.complete(response as ExecuteResponse)

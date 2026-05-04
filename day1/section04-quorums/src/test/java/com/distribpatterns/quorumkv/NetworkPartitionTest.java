@@ -5,7 +5,7 @@ import com.tickloom.ConsistencyChecker;
 import com.tickloom.ConsistencyChecker.ConsistencyProperty;
 import com.tickloom.ConsistencyChecker.DataModel;
 import com.tickloom.ProcessId;
-import com.tickloom.future.ListenableFuture;
+import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.history.History;
 import com.tickloom.history.Op;
 import com.tickloom.testkit.Cluster;
@@ -258,7 +258,7 @@ public class NetworkPartitionTest {
         }
     }
 
-    private static BooleanSupplier completesSuccessfully(ListenableFuture<SetResponse> w2) {
+    private static BooleanSupplier completesSuccessfully(TickCompletableFuture<SetResponse> w2) {
         return () -> w2.isCompleted() && w2.getResult().success();
     }
 

@@ -14,7 +14,6 @@ import com.tickloom.ProcessId
 import com.tickloom.ProcessParams
 import com.tickloom.Replica
 import com.tickloom.future.await
-import com.tickloom.messaging.AsyncQuorumCallback
 import com.tickloom.messaging.Message
 import com.tickloom.messaging.MessageType
 import com.tickloom.network.PeerType
@@ -23,15 +22,13 @@ import kotlin.coroutines.createCoroutine
 import kotlin.coroutines.resume
 
 /**
- * ThreePhaseServer using Kotlin coroutines + tickloom's ListenableFuture.await().
+ * ThreePhaseServer using Kotlin coroutines + tickloom's TickCompletableFuture.await().
  *
- * The key insight: AsyncQuorumCallback.getQuorumFuture() returns a ListenableFuture,
- * and tickloom now provides `suspend fun ListenableFuture<T>.await(): T`.
- * This eliminates all manual suspendCoroutine bridging.
+ * The key insight: quorumRequest().send() returns a TickCompletableFuture,
+ * and tickloom provides `suspend fun TickCompletableFuture<T>.await(): T`.
  *
  * Compare with ThreePhaseServer.java — the callback-based version nests
- * onSuccess/onFailure inside onSuccess/onFailure. Here the coordinator
- * reads as straight-line code:
+ * whenComplete handlers. Here the coordinator reads as straight-line code:
  *
  *   val queryResponses = awaitQueryQuorum(queryId)
  *   if (hasPending(queryResponses)) { recover(); return }
@@ -63,30 +60,32 @@ class ThreePhaseServerExample(
     // =====================================================================
 
     private suspend fun awaitQueryQuorum(queryId: String): Map<ProcessId, QueryResponse> {
-        val quorumCallback = AsyncQuorumCallback<QueryResponse>(allNodes.size) { it != null }
         val queryReq = QueryRequest(queryId)
-        broadcastToAllReplicas(quorumCallback) { node, correlationId ->
-            createMessage(node, correlationId, queryReq, TwoPhaseMessageTypes.QUERY_REQUEST)
-        }
-        return quorumCallback.quorumFuture.await()
+        return quorumRequest<QueryResponse>()
+            .acceptResponseWhen { it != null }
+            .withMessage { node, correlationId ->
+                createMessage(node, correlationId, queryReq, TwoPhaseMessageTypes.QUERY_REQUEST)
+            }
+            .send()
+            .await()
     }
 
     private suspend fun awaitAcceptQuorum(requestId: String, operation: Operation): Map<ProcessId, AcceptResponse> {
-        val quorumCallback = AsyncQuorumCallback<AcceptResponse>(allNodes.size) {
-            it != null && it.accepted()
-        }
         val acceptReq = AcceptRequest(requestId, operation)
-        broadcastToAllReplicas(quorumCallback) { node, correlationId ->
-            createMessage(node, correlationId, acceptReq, TwoPhaseMessageTypes.ACCEPT_REQUEST)
-        }
-        return quorumCallback.quorumFuture.await()
+        return quorumRequest<AcceptResponse>()
+            .acceptResponseWhen { it != null && it.accepted() }
+            .withMessage { node, correlationId ->
+                createMessage(node, correlationId, acceptReq, TwoPhaseMessageTypes.ACCEPT_REQUEST)
+            }
+            .send()
+            .await()
     }
 
     private suspend fun awaitLocalCommitExecution(
         requestId: String,
         trigger: () -> Unit
     ): ExecuteResponse {
-        val future = com.tickloom.future.ListenableFuture<ExecuteResponse>()
+        val future = com.tickloom.future.TickCompletableFuture<ExecuteResponse>()
         waitingList.add(requestId, object : com.tickloom.messaging.RequestCallback<Any> {
             override fun onResponse(response: Any, fromNode: ProcessId) {
                 future.complete(response as ExecuteResponse)

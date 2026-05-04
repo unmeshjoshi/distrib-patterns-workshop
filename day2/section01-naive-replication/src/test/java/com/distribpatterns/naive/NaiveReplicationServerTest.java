@@ -3,7 +3,7 @@ package com.distribpatterns.naive;
 import com.distribpatterns.naive.messages.IncrementCounterResponse;
 import com.distribpatterns.naive.messages.MessageTypes;
 import com.tickloom.ProcessId;
-import com.tickloom.future.ListenableFuture;
+import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.testkit.Cluster;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -45,7 +45,7 @@ public class NaiveReplicationServerTest {
 
 
             String COUNTER_KEY = "counterKey";
-            ListenableFuture<IncrementCounterResponse> incrementResponse = client.increment(ATHENS, COUNTER_KEY, 2);
+            TickCompletableFuture<IncrementCounterResponse> incrementResponse = client.increment(ATHENS, COUNTER_KEY, 2);
             //assertEventually ticks only until response is received.
             // Because athens immediately sends the response and then sends the replication message to followers.
             // So it will require one more tick for followers to process the messages.
@@ -63,7 +63,7 @@ public class NaiveReplicationServerTest {
         }
     }
 
-    private static BooleanSupplier completesSuccessfully(ListenableFuture<IncrementCounterResponse> future) {
+    private static BooleanSupplier completesSuccessfully(TickCompletableFuture<IncrementCounterResponse> future) {
         return () -> future.isCompleted() && future.getResult().success();
     }
 }

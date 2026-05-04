@@ -5,7 +5,7 @@ import com.distribpatterns.multipaxosheartbeats.messages.ExecuteCommandResponse;
 import com.distribpatterns.multipaxosheartbeats.messages.MultiPaxosMessageTypes;
 import com.distribpatterns.multipaxosheartbeats.messages.SetValueOperation;
 import com.tickloom.ProcessId;
-import com.tickloom.future.ListenableFuture;
+import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.testkit.Cluster;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -72,7 +72,7 @@ public class RecoveryAndCatchUpScenariosTest {
             // Execute some operations while all nodes are active
             var client = cluster.newClientConnectedTo(CLIENT_ALICE, ATHENS, MultiPaxosWithHeartbeatsClient::new);
             
-            ListenableFuture<ExecuteCommandResponse> future1 = client.execute(
+            TickCompletableFuture<ExecuteCommandResponse> future1 = client.execute(
                 ATHENS,
                 new SetValueOperation("before_operations", "value1")
             );
@@ -85,12 +85,12 @@ public class RecoveryAndCatchUpScenariosTest {
             assertEquals("value1", cyrene.getValue("before_operations"));
             
             // Continue operations
-            ListenableFuture<ExecuteCommandResponse> future2 = client.execute(
+            TickCompletableFuture<ExecuteCommandResponse> future2 = client.execute(
                 ATHENS,
                 new SetValueOperation("during_operations", "value2")
             );
             
-            ListenableFuture<ExecuteCommandResponse> future3 = client.execute(
+            TickCompletableFuture<ExecuteCommandResponse> future3 = client.execute(
                 ATHENS,
                 new SetValueOperation("during_operations2", "value3")
             );
@@ -165,7 +165,7 @@ public class RecoveryAndCatchUpScenariosTest {
             // Execute one committed entry first so the recovered log has prior state.
             var client = cluster.newClientConnectedTo(CLIENT_ALICE, initialLeaderId, MultiPaxosWithHeartbeatsClient::new);
             
-            ListenableFuture<ExecuteCommandResponse> future1 = client.execute(
+            TickCompletableFuture<ExecuteCommandResponse> future1 = client.execute(
                 initialLeaderId,
                 new SetValueOperation("committed", "value1")
             );
@@ -187,7 +187,7 @@ public class RecoveryAndCatchUpScenariosTest {
                 Integer.MAX_VALUE
             );
 
-            ListenableFuture<ExecuteCommandResponse> future2 = client.execute(
+            TickCompletableFuture<ExecuteCommandResponse> future2 = client.execute(
                 initialLeaderId,
                 new SetValueOperation("needs_recovery", "value2")
             );
@@ -290,7 +290,7 @@ public class RecoveryAndCatchUpScenariosTest {
             // Execute operations before partition
             var client = cluster.newClientConnectedTo(CLIENT_ALICE, ATHENS, MultiPaxosWithHeartbeatsClient::new);
             
-            ListenableFuture<ExecuteCommandResponse> future1 = client.execute(
+            TickCompletableFuture<ExecuteCommandResponse> future1 = client.execute(
                 ATHENS,
                 new SetValueOperation("before_partition", "value1")
             );
@@ -317,7 +317,7 @@ public class RecoveryAndCatchUpScenariosTest {
             assertNotNull(currentLeader, "Should have a current leader");
             
             // Execute operations during partition
-            ListenableFuture<ExecuteCommandResponse> future2 = client.execute(
+            TickCompletableFuture<ExecuteCommandResponse> future2 = client.execute(
                 ATHENS,
                 new SetValueOperation("during_partition", "value2")
             );
@@ -387,7 +387,7 @@ public class RecoveryAndCatchUpScenariosTest {
             // Execute operations
             var client = cluster.newClientConnectedTo(CLIENT_ALICE, ATHENS, MultiPaxosWithHeartbeatsClient::new);
             
-            ListenableFuture<ExecuteCommandResponse> future1 = client.execute(
+            TickCompletableFuture<ExecuteCommandResponse> future1 = client.execute(
                 ATHENS,
                 new SetValueOperation("restart_test", "value1")
             );
@@ -455,7 +455,7 @@ public class RecoveryAndCatchUpScenariosTest {
             var client = cluster.newClientConnectedTo(CLIENT_ALICE, ATHENS, MultiPaxosWithHeartbeatsClient::new);
             
             @SuppressWarnings("unchecked")
-            ListenableFuture<ExecuteCommandResponse>[] futures = new ListenableFuture[3];
+            TickCompletableFuture<ExecuteCommandResponse>[] futures = new TickCompletableFuture[3];
             for (int i = 0; i < 3; i++) {
                 final int index = i;
                 futures[index] = client.execute(
@@ -545,17 +545,17 @@ public class RecoveryAndCatchUpScenariosTest {
             // Execute operations to build state machine
             var client = cluster.newClientConnectedTo(CLIENT_ALICE, ATHENS, MultiPaxosWithHeartbeatsClient::new);
             
-            ListenableFuture<ExecuteCommandResponse> future1 = client.execute(
+            TickCompletableFuture<ExecuteCommandResponse> future1 = client.execute(
                 ATHENS,
                 new SetValueOperation("recovery_key1", "recovery_value1")
             );
             
-            ListenableFuture<ExecuteCommandResponse> future2 = client.execute(
+            TickCompletableFuture<ExecuteCommandResponse> future2 = client.execute(
                 ATHENS,
                 new SetValueOperation("recovery_key2", "recovery_value2")
             );
             
-            ListenableFuture<ExecuteCommandResponse> future3 = client.execute(
+            TickCompletableFuture<ExecuteCommandResponse> future3 = client.execute(
                 ATHENS,
                 new CompareAndSwapOperation("recovery_key1", "recovery_value1", "recovery_value1_updated")
             );
@@ -637,7 +637,7 @@ public class RecoveryAndCatchUpScenariosTest {
                 // Execute operations
                 var client = cluster.newClientConnectedTo(CLIENT_ALICE, ATHENS, MultiPaxosWithHeartbeatsClient::new);
                 
-                ListenableFuture<ExecuteCommandResponse> future = client.execute(
+                TickCompletableFuture<ExecuteCommandResponse> future = client.execute(
                     ATHENS,
                     new SetValueOperation("cycle_" + cycle, "value_" + cycle)
                 );

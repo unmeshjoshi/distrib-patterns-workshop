@@ -4,8 +4,7 @@ import com.distribpatterns.paxos.messages.*;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
-import com.tickloom.future.ListenableFuture;
-import com.tickloom.messaging.AsyncQuorumCallback;
+import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.messaging.Message;
 import com.tickloom.messaging.MessageType;
 import com.tickloom.messaging.RequestCallback;
@@ -45,7 +44,7 @@ public class PaxosServer extends Replica {
     }
 
     @Override
-    protected ListenableFuture<?> onInit() {
+    protected TickCompletableFuture<?> onInit() {
         // Load initial state using standardized method
         return load(PAXOS_STATE_KEY, PaxosState.class).whenComplete((loadedState, error) -> {
             if (error != null) {
@@ -109,53 +108,67 @@ public class PaxosServer extends Replica {
     private void startPreparePhase(int generation, ClientMessage clientMessage, int attempt) {
         System.out.println(id + ": Phase 1 - PREPARE with generation " + generation);
 
-        var quorumCallback = this.<PrepareResponse>quorumCallbackBuilder()
-                .succeedsWhen(response -> isPromiseFor(response, generation))
-                .onSuccess(responses -> {
-                    System.out.println(id + ": PREPARE quorum reached (" + responses.size() + " promises), moving to Phase 2");
-                    startProposePhase(generation, clientMessage, responses, attempt);
-                })
-                .onFailure(error -> {
-                    System.out.println(id + ": PREPARE quorum failed: " + error.getMessage() + ", retrying...");
-                    startPaxosWithRetry(clientMessage, attempt + 1);
-                })
-                .build();
+        PrepareRequest prepareReq = new PrepareRequest(generation);
+        this.<PrepareResponse>quorumRequest()
+                .acceptResponseWhen(response -> isPromiseFor(response, generation))
+                .withMessage((node, correlationId) ->
+                        createMessage(node, correlationId, prepareReq, PaxosMessageTypes.PREPARE_REQUEST))
+                .send()
+                .whenComplete((responses, error) -> {
+                    if (error != null) {
+                        System.out.println(id + ": PREPARE quorum failed: " + error.getMessage() + ", retrying...");
+                        startPaxosWithRetry(clientMessage, attempt + 1);
+                    } else {
+                        System.out.println(id + ": PREPARE quorum reached (" + responses.size() + " promises), moving to Phase 2");
+                        startProposePhase(generation, clientMessage, responses, attempt);
+                    }
+                });
 
-        broadcastPrepareFor(generation, quorumCallback);
+        System.out.println(id + ": Broadcast PREPARE to " + getAllNodes().size() + " nodes");
     }
     private void startProposePhase(long generation, ClientMessage clientMessage,
                                    Map<ProcessId, PrepareResponse> promises, int attempt) {
-        // Paxos key insight: Choose the value with the highest accepted generation,
-        // or use client's value if none were accepted
         Operation valueToPropose = selectRequestOperationToPropose(clientMessage.operation(), promises);
 
         System.out.println(id + ": Phase 2 - PROPOSE value " + valueToPropose + " with generation " + generation);
 
-        var quorumCallback = this.<ProposeResponse>quorumCallbackBuilder()
-                .succeedsWhen(response -> isAcceptedFor(response, generation))
-                .onSuccess(responses -> {
-                    System.out.println(id + ": PROPOSE quorum reached (" + responses.size() + " accepts), moving to Phase 3");
-                    startCommitPhase(generation, clientMessage, valueToPropose);
-                })
-                .onFailure(error -> {
-                    System.out.println(id + ": PROPOSE quorum failed: " + error.getMessage() + ", retrying...");
-                    // Retry immediately (could add delay if needed)
-                    startPaxosWithRetry(clientMessage, attempt + 1);
-                })
-                .build();
-
         ProposeRequest proposeReq = new ProposeRequest(generation, valueToPropose);
-        broadcastToAllReplicas(quorumCallback, (node, correlationId) ->
-                createMessage(node, correlationId, proposeReq, PaxosMessageTypes.PROPOSE_REQUEST)
-        );
+        this.<ProposeResponse>quorumRequest()
+                .acceptResponseWhen(response -> isAcceptedFor(response, generation))
+                .withMessage((node, correlationId) ->
+                        createMessage(node, correlationId, proposeReq, PaxosMessageTypes.PROPOSE_REQUEST))
+                .send()
+                .whenComplete((responses, error) -> {
+                    if (error != null) {
+                        System.out.println(id + ": PROPOSE quorum failed: " + error.getMessage() + ", retrying...");
+                        startPaxosWithRetry(clientMessage, attempt + 1);
+                    } else {
+                        System.out.println(id + ": PROPOSE quorum reached (" + responses.size() + " accepts), moving to Phase 3");
+                        startCommitPhase(generation, clientMessage, valueToPropose);
+                    }
+                });
+
         System.out.println(id + ": Broadcast PROPOSE to " + getAllNodes().size() + " nodes");
     }
 
     private void startCommitPhase(long generation, ClientMessage clientMessage, Operation committedOperation) {
         System.out.println(id + ": Phase 3 - COMMIT value " + committedOperation);
 
-        var quorumCallback = commitQuorumCallback();
-        broadcastCommitFor(generation, clientMessage, committedOperation, quorumCallback);
+        CommitRequest commitReq = new CommitRequest(generation, clientMessage, committedOperation);
+        this.<CommitResponse>quorumRequest()
+                .acceptResponseWhen(response -> response != null && response.committed())
+                .withMessage((node, correlationId) ->
+                        createMessage(node, correlationId, commitReq, PaxosMessageTypes.COMMIT_REQUEST))
+                .send()
+                .whenComplete((acks, err) -> {
+                    if (err != null) {
+                        System.out.println(id + ": COMMIT quorum failed: " + err.getMessage());
+                    } else {
+                        System.out.println(id + ": COMMIT quorum reached (" + acks.size() + ")");
+                    }
+                });
+
+        System.out.println(id + ": Broadcast COMMIT to " + getAllNodes().size() + " nodes");
     }
 
     private String clientKeyFor(Message clientMessage) {
@@ -183,14 +196,6 @@ public class PaxosServer extends Replica {
 
     private static boolean attemptsExhausted(int attempt) {
         return attempt >= MAX_RETRIES;
-    }
-
-    private void broadcastPrepareFor(int generation, AsyncQuorumCallback<PrepareResponse> quorumCallback) {
-        PrepareRequest prepareReq = new PrepareRequest(generation);
-        broadcastToAllReplicas(quorumCallback, (node, correlationId) ->
-                createMessage(node, correlationId, prepareReq, PaxosMessageTypes.PREPARE_REQUEST)
-        );
-        System.out.println(id + ": Broadcast PREPARE to " + getAllNodes().size() + " nodes");
     }
 
     private static boolean isPromiseFor(PrepareResponse response, long generation) {
@@ -235,31 +240,6 @@ public class PaxosServer extends Replica {
 
     // ========== PHASE 3: COMMIT/LEARN ==========
 
-    private AsyncQuorumCallback<CommitResponse> commitQuorumCallback() {
-        // What happens when commit requests fail? Any next client request handled will trigger prepare
-        // phase which recovers the nodes missing the committed operations. This 'reconciling' lagging replicas
-        // is a problem. In Paxos it's reconciled either by a new client request or the node itself can trigger
-        // the prepare phase and full paxos execution to get the latest state.
-        return this.<CommitResponse>quorumCallbackBuilder()
-                .succeedsWhen(response -> response != null && response.committed())
-                .onSuccess(acks -> System.out.println(id + ": COMMIT quorum reached (" + acks.size() + ")"))
-                .onFailure(err -> System.out.println(id + ": COMMIT quorum failed: " + err.getMessage()))
-                .build();
-    }
-
-    private void broadcastCommitFor(long generation,
-                                    ClientMessage clientMessage,
-                                    Operation committedOperation,
-                                    AsyncQuorumCallback<CommitResponse> quorumCallback) {
-        // We send commit requests to all replicas. When this replica,
-        // which had been coordinating the client request, handles the commit request,
-        // it will execute the committed operation and respond to the client.
-        CommitRequest commitReq = new CommitRequest(generation, clientMessage, committedOperation);
-        broadcastToAllReplicas(quorumCallback, (node, correlationId) ->
-                createMessage(node, correlationId, commitReq, PaxosMessageTypes.COMMIT_REQUEST)
-        );
-        System.out.println(id + ": Broadcast COMMIT to " + getAllNodes().size() + " nodes");
-    }
 
     private void handleCommitResponse(Message message) {
         CommitResponse response = deserializePayload(message.payload(), CommitResponse.class);
@@ -399,10 +379,6 @@ public class PaxosServer extends Replica {
     }
 
     // ========== SHARED HELPERS ==========
-
-    private <T> QuorumCallbackBuilder<T> quorumCallbackBuilder() {
-        return QuorumCallbackBuilder.forTotalResponses(getAllNodes().size());
-    }
 
     // ========== STATE MACHINE EXECUTION ==========
 

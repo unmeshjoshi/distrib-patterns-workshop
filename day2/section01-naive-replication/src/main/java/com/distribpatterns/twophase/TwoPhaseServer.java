@@ -9,8 +9,7 @@ import com.distribpatterns.twophase.messages.TwoPhaseMessageTypes;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
-import com.tickloom.future.ListenableFuture;
-import com.tickloom.messaging.AsyncQuorumCallback;
+import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.messaging.Message;
 import com.tickloom.messaging.MessageType;
 import com.tickloom.messaging.RequestCallback;
@@ -75,7 +74,7 @@ public class TwoPhaseServer extends Replica {
 
     private void coordinateTwoPhaseExecution(String requestId, ExecuteRequest request) {
         //send accept request and get quorum future
-        ListenableFuture<Map<ProcessId, AcceptResponse>> acceptFuture =
+        TickCompletableFuture<Map<ProcessId, AcceptResponse>> acceptFuture =
                 sendAcceptToAll(requestId, request);
 
         acceptFuture.whenComplete((responses, error) -> {
@@ -173,29 +172,26 @@ public class TwoPhaseServer extends Replica {
         System.out.println(id + ": Sent ACCEPT response for txn " + request.transactionId());
     }
 
-    protected ListenableFuture<Map<ProcessId, AcceptResponse>> sendAcceptToAll(
+    protected TickCompletableFuture<Map<ProcessId, AcceptResponse>> sendAcceptToAll(
             String requestId,
             ExecuteRequest request
     ) {
         return sendAcceptToAll(requestId, request.operation());
     }
 
-    protected ListenableFuture<Map<ProcessId, AcceptResponse>> sendAcceptToAll(
+    protected TickCompletableFuture<Map<ProcessId, AcceptResponse>> sendAcceptToAll(
             String requestId,
             Operation operation
     ) {
-        var quorumCallback = new AsyncQuorumCallback<AcceptResponse>(
-                getAllNodes().size(),
-                response -> response != null && response.accepted()
-        );
-
         AcceptRequest acceptReq = new AcceptRequest(requestId, operation);
-        broadcastToAllReplicas(quorumCallback, (node, correlationId) ->
-                createMessage(node, correlationId, acceptReq, TwoPhaseMessageTypes.ACCEPT_REQUEST)
-        );
+        var future = this.<AcceptResponse>quorumRequest()
+                .acceptResponseWhen(response -> response != null && response.accepted())
+                .withMessage((node, correlationId) ->
+                        createMessage(node, correlationId, acceptReq, TwoPhaseMessageTypes.ACCEPT_REQUEST))
+                .send();
 
         System.out.println(id + ": Sent ACCEPT to " + getAllNodes().size() + " nodes");
-        return quorumCallback.getQuorumFuture();
+        return future;
     }
 
     // Phase 2: All participants receive COMMIT and execute

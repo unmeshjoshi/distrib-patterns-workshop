@@ -7,7 +7,7 @@ import com.distribpatterns.generation.messages.PrepareResponse;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
-import com.tickloom.future.ListenableFuture;
+import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.messaging.Message;
 import com.tickloom.messaging.MessageType;
 import com.tickloom.messaging.RequestCallback;
@@ -96,8 +96,8 @@ public class GenerationVotingServer extends Replica {
         logElectionAttempt(proposedGeneration, attempt);
 
         tryProposal(proposedGeneration)
-                .map(result -> rejectIfObsolete(proposedGeneration, result))
-                .andThen(result -> {
+                .thenApply(result -> rejectIfObsolete(proposedGeneration, result))
+                .thenCompose(result -> {
                     logWonElection(proposedGeneration, result);
                     return respondToClient(clientMessage, new NextGenerationResponse(proposedGeneration));
                 })
@@ -119,7 +119,7 @@ public class GenerationVotingServer extends Replica {
     }
 
     @SuppressWarnings("unchecked")
-    private ListenableFuture<Map<ProcessId, PrepareResponse>> tryProposal(long proposedGeneration) {
+    private TickCompletableFuture<Map<ProcessId, PrepareResponse>> tryProposal(long proposedGeneration) {
         var prepareReq = new PrepareRequest(proposedGeneration);
         var ack = new ElectionQuorumCallback(clusterSize(), proposedGeneration);
         for (ProcessId node : getAllNodes()) {
@@ -163,7 +163,7 @@ public class GenerationVotingServer extends Replica {
         return getAllNodes().size();
     }
 
-    private ListenableFuture<Void> respondToClient(Message clientMessage, NextGenerationResponse body) {
+    private TickCompletableFuture<Void> respondToClient(Message clientMessage, NextGenerationResponse body) {
         System.out.println(id + ": Responding to client " + clientMessage.source() + " with generation " + body.generation() + " correlationId=" + clientMessage.correlationId() + " highestProposal=" + highestProposal);
         var responseMsg = new Message(
                 id,
@@ -174,7 +174,7 @@ public class GenerationVotingServer extends Replica {
                 clientMessage.correlationId()
         );
         send(responseMsg);
-        return ListenableFuture.completed(null);
+        return TickCompletableFuture.completed(null);
     }
 
     /**
@@ -190,7 +190,7 @@ public class GenerationVotingServer extends Replica {
                 .whenComplete((result, exception) -> sendPrepareResponse(message, Boolean.TRUE.equals(result)));
     }
 
-    private ListenableFuture<Boolean> tryAccept(Message message, PrepareRequest request) {
+    private TickCompletableFuture<Boolean> tryAccept(Message message, PrepareRequest request) {
         final long proposed = request.proposedGeneration();
         // Strict '>' rule: once this node has moved to generation N, no other
         // request may newly claim N again. Late responses for an already-made
@@ -205,7 +205,7 @@ public class GenerationVotingServer extends Replica {
         return accept(message, proposed);
     }
 
-    private ListenableFuture<Boolean> accept(Message message, long proposed) {
+    private TickCompletableFuture<Boolean> accept(Message message, long proposed) {
         this.generation = proposed;
         System.out.println(id + ": ACCEPTED generation " + proposed + " from " + message.source());
         return completedFuture(true);
@@ -222,8 +222,8 @@ public class GenerationVotingServer extends Replica {
         send(responseMsg);
     }
 
-    private static ListenableFuture<Boolean> completedFuture(boolean result) {
-        ListenableFuture<Boolean> future = new ListenableFuture<>();
+    private static TickCompletableFuture<Boolean> completedFuture(boolean result) {
+        TickCompletableFuture<Boolean> future = new TickCompletableFuture<>();
         future.complete(result);
         return future;
     }

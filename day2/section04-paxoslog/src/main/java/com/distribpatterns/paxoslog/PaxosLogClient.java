@@ -4,7 +4,7 @@ import com.distribpatterns.paxoslog.messages.*;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.algorithms.replication.ClusterClient;
-import com.tickloom.future.ListenableFuture;
+import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.messaging.Message;
 import com.tickloom.messaging.MessageType;
 
@@ -31,7 +31,7 @@ public class PaxosLogClient extends ClusterClient {
     /**
      * Execute an operation in the replicated log.
      */
-    public ListenableFuture<ExecuteCommandResponse> execute(ProcessId coordinator, Operation operation) {
+    public TickCompletableFuture<ExecuteCommandResponse> execute(ProcessId coordinator, Operation operation) {
         ExecuteCommandRequest request = new ExecuteCommandRequest(operation);
         return sendRequest(request, coordinator, PaxosLogMessageTypes.CLIENT_EXECUTE_REQUEST);
     }
@@ -39,7 +39,7 @@ public class PaxosLogClient extends ClusterClient {
     /**
      * Get a value from the key-value store.
      */
-    public ListenableFuture<GetValueResponse> getValue(ProcessId coordinator, String key) {
+    public TickCompletableFuture<GetValueResponse> getValue(ProcessId coordinator, String key) {
         GetValueRequest request = new GetValueRequest(key);
         return sendRequest(request, coordinator, PaxosLogMessageTypes.CLIENT_GET_REQUEST);
     }

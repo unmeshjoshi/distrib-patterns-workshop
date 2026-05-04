@@ -5,7 +5,7 @@ import com.distribpatterns.multipaxosheartbeats.messages.ExecuteCommandResponse;
 import com.distribpatterns.multipaxosheartbeats.messages.GetValueResponse;
 import com.distribpatterns.multipaxosheartbeats.messages.SetValueOperation;
 import com.tickloom.ProcessId;
-import com.tickloom.future.ListenableFuture;
+import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.testkit.Cluster;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -73,17 +73,17 @@ public class LogConsistencyAndSafetyTest {
             var client = cluster.newClientConnectedTo(CLIENT_ALICE, ATHENS, MultiPaxosWithHeartbeatsClient::new);
             
             // Execute several operations
-            ListenableFuture<ExecuteCommandResponse> future1 = client.execute(
+            TickCompletableFuture<ExecuteCommandResponse> future1 = client.execute(
                 ATHENS,
                 new SetValueOperation("key1", "value1")
             );
             
-            ListenableFuture<ExecuteCommandResponse> future2 = client.execute(
+            TickCompletableFuture<ExecuteCommandResponse> future2 = client.execute(
                 ATHENS,
                 new SetValueOperation("key2", "value2")
             );
             
-            ListenableFuture<ExecuteCommandResponse> future3 = client.execute(
+            TickCompletableFuture<ExecuteCommandResponse> future3 = client.execute(
                 ATHENS,
                 new SetValueOperation("key3", "value3")
             );
@@ -166,12 +166,12 @@ public class LogConsistencyAndSafetyTest {
             // Execute operations with initial leader
             var client = cluster.newClientConnectedTo(CLIENT_ALICE, ATHENS, MultiPaxosWithHeartbeatsClient::new);
             
-            ListenableFuture<ExecuteCommandResponse> future1 = client.execute(
+            TickCompletableFuture<ExecuteCommandResponse> future1 = client.execute(
                 ATHENS,
                 new SetValueOperation("persistent", "value1")
             );
             
-            ListenableFuture<ExecuteCommandResponse> future2 = client.execute(
+            TickCompletableFuture<ExecuteCommandResponse> future2 = client.execute(
                 ATHENS,
                 new SetValueOperation("persistent2", "value2")
             );
@@ -253,12 +253,12 @@ public class LogConsistencyAndSafetyTest {
             var client = cluster.newClientConnectedTo(CLIENT_ALICE, ATHENS, MultiPaxosWithHeartbeatsClient::new);
             
             // Execute CAS operations on same key
-            ListenableFuture<ExecuteCommandResponse> future1 = client.execute(
+            TickCompletableFuture<ExecuteCommandResponse> future1 = client.execute(
                 ATHENS,
                 new CompareAndSwapOperation("conflict_key", null, "first_value")
             );
             
-            ListenableFuture<ExecuteCommandResponse> future2 = client.execute(
+            TickCompletableFuture<ExecuteCommandResponse> future2 = client.execute(
                 ATHENS,
                 new CompareAndSwapOperation("conflict_key", "first_value", "second_value")
             );
@@ -404,12 +404,12 @@ public class LogConsistencyAndSafetyTest {
             // Execute operations to build log
             var client = cluster.newClientConnectedTo(CLIENT_ALICE, ATHENS, MultiPaxosWithHeartbeatsClient::new);
             
-            ListenableFuture<ExecuteCommandResponse> future1 = client.execute(
+            TickCompletableFuture<ExecuteCommandResponse> future1 = client.execute(
                 ATHENS,
                 new SetValueOperation("append_test", "value1")
             );
             
-            ListenableFuture<ExecuteCommandResponse> future2 = client.execute(
+            TickCompletableFuture<ExecuteCommandResponse> future2 = client.execute(
                 ATHENS,
                 new SetValueOperation("append_test2", "value2")
             );
@@ -480,7 +480,7 @@ public class LogConsistencyAndSafetyTest {
             var client = cluster.newClientConnectedTo(CLIENT_ALICE, ATHENS, MultiPaxosWithHeartbeatsClient::new);
             
             @SuppressWarnings("unchecked")
-            ListenableFuture<ExecuteCommandResponse>[] futures = new ListenableFuture[5];
+            TickCompletableFuture<ExecuteCommandResponse>[] futures = new TickCompletableFuture[5];
             for (int i = 0; i < 5; i++) {
                 final int index = i;
                 futures[index] = client.execute(
@@ -570,7 +570,7 @@ public class LogConsistencyAndSafetyTest {
             // First, set a value
             var client = cluster.newClientConnectedTo(CLIENT_ALICE, ATHENS, MultiPaxosWithHeartbeatsClient::new);
             
-            ListenableFuture<ExecuteCommandResponse> setFuture = client.execute(
+            TickCompletableFuture<ExecuteCommandResponse> setFuture = client.execute(
                 ATHENS,
                 new SetValueOperation("read_test", "read_value")
             );
@@ -578,7 +578,7 @@ public class LogConsistencyAndSafetyTest {
             assertEventually(cluster, () -> setFuture.isCompleted() && !setFuture.isFailed());
             
             // Now perform a read operation (should trigger no-op commit)
-            ListenableFuture<GetValueResponse> readFuture = client.getValue(ATHENS, "read_test");
+            TickCompletableFuture<GetValueResponse> readFuture = client.getValue(ATHENS, "read_test");
             
             assertEventually(cluster, () -> readFuture.isCompleted() && !readFuture.isFailed());
             

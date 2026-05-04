@@ -4,7 +4,6 @@ import com.distribpatterns.paxoslog.messages.*;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
-import com.tickloom.messaging.AsyncQuorumCallback;
 import com.tickloom.messaging.Message;
 import com.tickloom.messaging.MessageType;
 import com.tickloom.messaging.RequestCallback;
@@ -167,31 +166,20 @@ public class PaxosLogServer extends Replica {
     private void startPreparePhase(int logIndex, int generation, Operation operation, String clientKey, int attempt) {
         System.out.println(id + ": Phase 1 - PREPARE for index " + logIndex + ", generation " + generation);
 
-        var quorumCallback = prepareQuorumCallbackFor(logIndex, generation, operation, clientKey, attempt);
         PrepareRequest prepareReq = new PrepareRequest(logIndex, generation);
-        broadcastToAllReplicas(quorumCallback, (node, correlationId) ->
-            createMessage(node, correlationId, prepareReq, PaxosLogMessageTypes.PREPARE_REQUEST)
-        );
-    }
-
-    private AsyncQuorumCallback<PrepareResponse> prepareQuorumCallbackFor(int logIndex,
-                                                                          int generation,
-                                                                          Operation operation,
-                                                                          String clientKey,
-                                                                          int attempt) {
-        var quorumCallback = new AsyncQuorumCallback<PrepareResponse>(
-            getAllNodes().size(),
-            response -> response != null && response.promised()
-        );
-
-        quorumCallback
-            .onSuccess(responses -> {
-                System.out.println(id + ": PREPARE quorum reached for index " + logIndex);
-                startProposePhase(logIndex, generation, operation, responses, clientKey, attempt);
-            })
-            .onFailure(error -> retryPrepareAtHigherGeneration(logIndex, operation, clientKey, attempt, error));
-
-        return quorumCallback;
+        this.<PrepareResponse>quorumRequest()
+                .acceptResponseWhen(response -> response != null && response.promised())
+                .withMessage((node, correlationId) ->
+                        createMessage(node, correlationId, prepareReq, PaxosLogMessageTypes.PREPARE_REQUEST))
+                .send()
+                .whenComplete((responses, error) -> {
+                    if (error != null) {
+                        retryPrepareAtHigherGeneration(logIndex, operation, clientKey, attempt, error);
+                    } else {
+                        System.out.println(id + ": PREPARE quorum reached for index " + logIndex);
+                        startProposePhase(logIndex, generation, operation, responses, clientKey, attempt);
+                    }
+                });
     }
 
     private void retryPrepareAtHigherGeneration(int logIndex,
@@ -209,37 +197,23 @@ public class PaxosLogServer extends Replica {
     private void startProposePhase(int logIndex, int generation, Operation initialOperation,
                                    Map<ProcessId, PrepareResponse> promises, String clientKey, int attempt) {
         Operation valueToPropose = selectValueToPropose(initialOperation, promises);
-        
+
         System.out.println(id + ": Phase 2 - PROPOSE " + valueToPropose + " for index " + logIndex);
 
-        var quorumCallback = proposeQuorumCallbackFor(
-            logIndex, generation, valueToPropose, initialOperation, clientKey, attempt
-        );
         ProposeRequest proposeReq = new ProposeRequest(logIndex, generation, valueToPropose);
-        broadcastToAllReplicas(quorumCallback, (node, correlationId) ->
-            createMessage(node, correlationId, proposeReq, PaxosLogMessageTypes.PROPOSE_REQUEST)
-        );
-    }
-
-    private AsyncQuorumCallback<ProposeResponse> proposeQuorumCallbackFor(int logIndex,
-                                                                          int generation,
-                                                                          Operation valueToPropose,
-                                                                          Operation initialOperation,
-                                                                          String clientKey,
-                                                                          int attempt) {
-        var quorumCallback = new AsyncQuorumCallback<ProposeResponse>(
-            getAllNodes().size(),
-            response -> response != null && response.accepted()
-        );
-
-        quorumCallback
-            .onSuccess(responses -> {
-                System.out.println(id + ": PROPOSE quorum reached for index " + logIndex);
-                startCommitPhase(logIndex, generation, valueToPropose, initialOperation, clientKey);
-            })
-            .onFailure(error -> retryProposalAtHigherGeneration(logIndex, initialOperation, clientKey, attempt));
-
-        return quorumCallback;
+        this.<ProposeResponse>quorumRequest()
+                .acceptResponseWhen(response -> response != null && response.accepted())
+                .withMessage((node, correlationId) ->
+                        createMessage(node, correlationId, proposeReq, PaxosLogMessageTypes.PROPOSE_REQUEST))
+                .send()
+                .whenComplete((responses, error) -> {
+                    if (error != null) {
+                        retryProposalAtHigherGeneration(logIndex, initialOperation, clientKey, attempt);
+                    } else {
+                        System.out.println(id + ": PROPOSE quorum reached for index " + logIndex);
+                        startCommitPhase(logIndex, generation, valueToPropose, initialOperation, clientKey);
+                    }
+                });
     }
 
     private void retryProposalAtHigherGeneration(int logIndex,
@@ -278,21 +252,19 @@ public class PaxosLogServer extends Replica {
             appendToLog(logIndex + 1, initialOperation, clientKey);
         }
 
-        var quorumCallback = commitQuorumCallbackFor(logIndex);
-        broadcastCommitFor(logIndex, generation, agreedValue, quorumCallback);
-    }
-    
-    private AsyncQuorumCallback<CommitResponse> commitQuorumCallbackFor(int logIndex) {
-        var quorumCallback = new AsyncQuorumCallback<CommitResponse>(
-            getAllNodes().size(),
-            response -> response != null && response.success()
-        );
-
-        quorumCallback
-            .onSuccess(responses -> System.out.println(id + ": COMMIT quorum reached for index " + logIndex))
-            .onFailure(error -> System.out.println(id + ": COMMIT quorum failed for index " + logIndex));
-
-        return quorumCallback;
+        CommitRequest commitReq = new CommitRequest(logIndex, generation, agreedValue);
+        this.<CommitResponse>quorumRequest()
+                .acceptResponseWhen(response -> response != null && response.success())
+                .withMessage((node, correlationId) ->
+                        createMessage(node, correlationId, commitReq, PaxosLogMessageTypes.COMMIT_REQUEST))
+                .send()
+                .whenComplete((responses, error) -> {
+                    if (error != null) {
+                        System.out.println(id + ": COMMIT quorum failed for index " + logIndex);
+                    } else {
+                        System.out.println(id + ": COMMIT quorum reached for index " + logIndex);
+                    }
+                });
     }
 
     private void commitValue(Message message,
@@ -320,16 +292,6 @@ public class PaxosLogServer extends Replica {
             new CommitResponse(success),
             PaxosLogMessageTypes.COMMIT_RESPONSE
         ));
-    }
-
-    private void broadcastCommitFor(int logIndex,
-                                    int generation,
-                                    Operation agreedValue,
-                                    AsyncQuorumCallback<CommitResponse> quorumCallback) {
-        CommitRequest commitReq = new CommitRequest(logIndex, generation, agreedValue);
-        broadcastToAllReplicas(quorumCallback, (node, correlationId) ->
-            createMessage(node, correlationId, commitReq, PaxosLogMessageTypes.COMMIT_REQUEST)
-        );
     }
 
     private void registerClientForCommittedIndex(int logIndex, String clientKey) {

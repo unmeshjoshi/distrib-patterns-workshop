@@ -11,8 +11,7 @@ import com.distribpatterns.twophase.messages.TwoPhaseMessageTypes;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
-import com.tickloom.future.ListenableFuture;
-import com.tickloom.messaging.AsyncQuorumCallback;
+import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.messaging.Message;
 import com.tickloom.messaging.MessageType;
 import com.tickloom.messaging.RequestCallback;
@@ -83,7 +82,7 @@ public class ThreePhaseServer extends Replica {
         //Phase 0→1: Analyze query responses, then proceed to accept phase
 
         sendQueryToAll(queryId)
-                .andThen(queryResponses -> analyzeAndAccept(queryResponses, clientMessage))
+                .thenCompose(queryResponses -> analyzeAndAccept(queryResponses, clientMessage))
                 .whenComplete((acceptResponses, error) -> {
                     sendCommitToAll(clientMessage, acceptResponses, error);
                 });
@@ -130,7 +129,7 @@ public class ThreePhaseServer extends Replica {
         });
     }
 
-    private ListenableFuture<Map<ProcessId, AcceptResponse>> analyzeAndAccept(
+    private TickCompletableFuture<Map<ProcessId, AcceptResponse>> analyzeAndAccept(
             Map<ProcessId, QueryResponse> queryResponses,
             Message clientMessage
     ) {
@@ -154,7 +153,7 @@ public class ThreePhaseServer extends Replica {
             .max((left, right) -> left.pendingRequestId().compareTo(right.pendingRequestId()));
     }
 
-    private ListenableFuture<Map<ProcessId, AcceptResponse>> enterRecoveryMode(QueryResponse pendingRequest) {
+    private TickCompletableFuture<Map<ProcessId, AcceptResponse>> enterRecoveryMode(QueryResponse pendingRequest) {
         String recoveredRequestId = pendingRequest.pendingRequestId();
         Operation recoveredOperation = pendingRequest.pendingOperation();
 
@@ -165,19 +164,16 @@ public class ThreePhaseServer extends Replica {
         return sendAcceptToAll(recoveredRequestId, recoveredOperation);
     }
 
-    private ListenableFuture<Map<ProcessId, QueryResponse>> sendQueryToAll(String queryId) {
-        var quorumCallback = new AsyncQuorumCallback<QueryResponse>(
-            getAllNodes().size(),
-            response -> response != null
-        );
-
+    private TickCompletableFuture<Map<ProcessId, QueryResponse>> sendQueryToAll(String queryId) {
         QueryRequest queryReq = new QueryRequest(queryId);
-        broadcastToAllReplicas(quorumCallback, (node, correlationId) ->
-            createMessage(node, correlationId, queryReq, TwoPhaseMessageTypes.QUERY_REQUEST)
-        );
+        var future = this.<QueryResponse>quorumRequest()
+                .acceptResponseWhen(response -> response != null)
+                .withMessage((node, correlationId) ->
+                        createMessage(node, correlationId, queryReq, TwoPhaseMessageTypes.QUERY_REQUEST))
+                .send();
 
         System.out.println(id + ": Sent QUERY to " + getAllNodes().size() + " nodes");
-        return quorumCallback.getQuorumFuture();
+        return future;
     }
     
     // Phase 0: Participant receives QUERY request
@@ -222,7 +218,7 @@ public class ThreePhaseServer extends Replica {
         waitingList.handleResponse(message.correlationId(), response, message.source());
     }
     
-    private ListenableFuture<Map<ProcessId, AcceptResponse>> proceedWithAcceptPhase(Message clientMessage) {
+    private TickCompletableFuture<Map<ProcessId, AcceptResponse>> proceedWithAcceptPhase(Message clientMessage) {
         String requestId = java.util.UUID.randomUUID().toString();
         registerClientCompletionCallback(clientMessage, requestId);
 
@@ -232,22 +228,19 @@ public class ThreePhaseServer extends Replica {
         return sendAcceptToAll(requestId, request.operation());
     }
 
-    private ListenableFuture<Map<ProcessId, AcceptResponse>> sendAcceptToAll(
+    private TickCompletableFuture<Map<ProcessId, AcceptResponse>> sendAcceptToAll(
             String requestId,
             Operation operation
     ) {
-        var quorumCallback = new AsyncQuorumCallback<AcceptResponse>(
-            getAllNodes().size(),
-            response -> response != null && response.accepted()
-        );
-
         AcceptRequest acceptReq = new AcceptRequest(requestId, operation);
-        broadcastToAllReplicas(quorumCallback, (node, correlationId) ->
-            createMessage(node, correlationId, acceptReq, TwoPhaseMessageTypes.ACCEPT_REQUEST)
-        );
+        var future = this.<AcceptResponse>quorumRequest()
+                .acceptResponseWhen(response -> response != null && response.accepted())
+                .withMessage((node, correlationId) ->
+                        createMessage(node, correlationId, acceptReq, TwoPhaseMessageTypes.ACCEPT_REQUEST))
+                .send();
 
         System.out.println(id + ": Sent ACCEPT to " + getAllNodes().size() + " nodes");
-        return quorumCallback.getQuorumFuture();
+        return future;
     }
     
     // Phase 1: Participant receives ACCEPT request

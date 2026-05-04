@@ -24,7 +24,7 @@ The implementation demonstrates:
 
 - **`QuorumKVClient`** - Client for sending requests to the cluster
   - Sends requests to the primary replica
-  - Receives responses asynchronously via `ListenableFuture`
+  - Receives responses asynchronously via `TickCompletableFuture`
 
 - **`QuorumKVReplicaProcessFactory`** - Factory for creating replica instances
 

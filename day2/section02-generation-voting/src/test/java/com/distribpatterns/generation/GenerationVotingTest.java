@@ -2,7 +2,7 @@ package com.distribpatterns.generation;
 
 import com.distribpatterns.generation.messages.NextGenerationResponse;
 import com.tickloom.ProcessId;
-import com.tickloom.future.ListenableFuture;
+import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.testkit.Cluster;
 import com.tickloom.testkit.NodeGroup;
 import org.junit.jupiter.api.DisplayName;
@@ -130,9 +130,9 @@ public class GenerationVotingTest {
 
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, GenerationVotingClient::new);
 
-            ListenableFuture<NextGenerationResponse> future1 = client.getNextGeneration(ATHENS);
-            ListenableFuture<NextGenerationResponse> future2 = client.getNextGeneration(ATHENS);
-            ListenableFuture<NextGenerationResponse> future3 = client.getNextGeneration(ATHENS);
+            TickCompletableFuture<NextGenerationResponse> future1 = client.getNextGeneration(ATHENS);
+            TickCompletableFuture<NextGenerationResponse> future2 = client.getNextGeneration(ATHENS);
+            TickCompletableFuture<NextGenerationResponse> future3 = client.getNextGeneration(ATHENS);
 
             assertFalse(future1.isCompleted(), "First request should still be in flight before ticking");
             assertFalse(future2.isCompleted(), "Second request should still be in flight before ticking");
@@ -142,9 +142,9 @@ public class GenerationVotingTest {
                 !future1.isPending() && !future2.isPending() && !future3.isPending()
             );
 
-            List<ListenableFuture<NextGenerationResponse>> futures = List.of(future1, future2, future3);
-            List<ListenableFuture<NextGenerationResponse>> successfulFutures = successfulFuturesFrom(futures);
-            List<ListenableFuture<NextGenerationResponse>> failedFutures = failedFuturesFrom(futures);
+            List<TickCompletableFuture<NextGenerationResponse>> futures = List.of(future1, future2, future3);
+            List<TickCompletableFuture<NextGenerationResponse>> successfulFutures = successfulFuturesFrom(futures);
+            List<TickCompletableFuture<NextGenerationResponse>> failedFutures = failedFuturesFrom(futures);
 
             assertFalse(successfulFutures.isEmpty(), "At least one request should succeed");
             assertEquals(3, successfulFutures.size() + failedFutures.size(), "All futures should resolve");
@@ -176,19 +176,19 @@ public class GenerationVotingTest {
         assertEquals(expectedGeneration, cluster.<GenerationVotingServer>getNode(CYRENE).getGeneration());
     }
 
-    private static List<ListenableFuture<NextGenerationResponse>> successfulFuturesFrom(
-            List<ListenableFuture<NextGenerationResponse>> futures
+    private static List<TickCompletableFuture<NextGenerationResponse>> successfulFuturesFrom(
+            List<TickCompletableFuture<NextGenerationResponse>> futures
     ) {
         return futures.stream()
-                .filter(ListenableFuture::isCompleted)
+                .filter(TickCompletableFuture::isCompleted)
                 .toList();
     }
 
-    private static List<ListenableFuture<NextGenerationResponse>> failedFuturesFrom(
-            List<ListenableFuture<NextGenerationResponse>> futures
+    private static List<TickCompletableFuture<NextGenerationResponse>> failedFuturesFrom(
+            List<TickCompletableFuture<NextGenerationResponse>> futures
     ) {
         return futures.stream()
-                .filter(ListenableFuture::isFailed)
+                .filter(TickCompletableFuture::isFailed)
                 .toList();
     }
 }

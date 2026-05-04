@@ -4,7 +4,6 @@ import com.distribpatterns.multipaxos.messages.*;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
-import com.tickloom.messaging.AsyncQuorumCallback;
 import com.tickloom.messaging.Message;
 import com.tickloom.messaging.MessageType;
 import com.tickloom.messaging.RequestCallback;
@@ -199,30 +198,20 @@ public class MultiPaxosServer extends Replica {
     private void startProposePhase(int logIndex, int generation, Operation operation, String clientKey) {
         System.out.println(id + ": Phase 1 - PROPOSE " + operation + " for index " + logIndex);
 
-        var quorumCallback = proposeQuorumCallbackFor(logIndex, generation, operation, clientKey);
         ProposeRequest proposeReq = new ProposeRequest(logIndex, generation, operation);
-        broadcastToAllReplicas(quorumCallback, (node, correlationId) ->
-            createMessage(node, correlationId, proposeReq, MultiPaxosMessageTypes.PROPOSE_REQUEST)
-        );
-    }
-
-    private AsyncQuorumCallback<ProposeResponse> proposeQuorumCallbackFor(int logIndex,
-                                                                          int generation,
-                                                                          Operation operation,
-                                                                          String clientKey) {
-        var quorumCallback = new AsyncQuorumCallback<ProposeResponse>(
-            getAllNodes().size(),
-            response -> response != null && response.accepted()
-        );
-
-        quorumCallback
-            .onSuccess(responses -> {
-                System.out.println(id + ": PROPOSE quorum reached for index " + logIndex);
-                startCommitPhase(logIndex, generation, operation, clientKey);
-            })
-            .onFailure(error -> failClientCommand(clientKey, "PROPOSE quorum failed for index " + logIndex));
-
-        return quorumCallback;
+        this.<ProposeResponse>quorumRequest()
+                .acceptResponseWhen(response -> response != null && response.accepted())
+                .withMessage((node, correlationId) ->
+                        createMessage(node, correlationId, proposeReq, MultiPaxosMessageTypes.PROPOSE_REQUEST))
+                .send()
+                .whenComplete((responses, error) -> {
+                    if (error != null) {
+                        failClientCommand(clientKey, "PROPOSE quorum failed for index " + logIndex);
+                    } else {
+                        System.out.println(id + ": PROPOSE quorum reached for index " + logIndex);
+                        startCommitPhase(logIndex, generation, operation, clientKey);
+                    }
+                });
     }
 
     private void failClientCommand(String clientKey, String reason) {
@@ -237,24 +226,19 @@ public class MultiPaxosServer extends Replica {
 
         registerClientForCommittedIndex(logIndex, clientKey);
 
-        var quorumCallback = commitQuorumCallbackFor(logIndex);
         CommitRequest commitReq = new CommitRequest(logIndex, generation, operation);
-        broadcastToAllReplicas(quorumCallback, (node, correlationId) ->
-            createMessage(node, correlationId, commitReq, MultiPaxosMessageTypes.COMMIT_REQUEST)
-        );
-    }
-
-    private AsyncQuorumCallback<CommitResponse> commitQuorumCallbackFor(int logIndex) {
-        var quorumCallback = new AsyncQuorumCallback<CommitResponse>(
-            getAllNodes().size(),
-            response -> response != null && response.success()
-        );
-
-        quorumCallback
-            .onSuccess(responses -> System.out.println(id + ": COMMIT quorum reached for index " + logIndex))
-            .onFailure(error -> System.out.println(id + ": COMMIT quorum failed for index " + logIndex));
-
-        return quorumCallback;
+        this.<CommitResponse>quorumRequest()
+                .acceptResponseWhen(response -> response != null && response.success())
+                .withMessage((node, correlationId) ->
+                        createMessage(node, correlationId, commitReq, MultiPaxosMessageTypes.COMMIT_REQUEST))
+                .send()
+                .whenComplete((responses, error) -> {
+                    if (error != null) {
+                        System.out.println(id + ": COMMIT quorum failed for index " + logIndex);
+                    } else {
+                        System.out.println(id + ": COMMIT quorum reached for index " + logIndex);
+                    }
+                });
     }
 
     private void registerClientForCommittedIndex(int logIndex, String clientKey) {
@@ -288,24 +272,19 @@ public class MultiPaxosServer extends Replica {
     private void sendFullLogPrepare(int generation) {
         System.out.println(id + ": Sending FULL_LOG_PREPARE with generation " + generation);
 
-        var quorumCallback = fullLogPrepareQuorumCallbackFor(generation);
         FullLogPrepareRequest prepareReq = new FullLogPrepareRequest(generation);
-        broadcastToAllReplicas(quorumCallback, (node, correlationId) ->
-            createMessage(node, correlationId, prepareReq, MultiPaxosMessageTypes.FULL_LOG_PREPARE_REQUEST)
-        );
-    }
-
-    private AsyncQuorumCallback<FullLogPrepareResponse> fullLogPrepareQuorumCallbackFor(int generation) {
-        var quorumCallback = new AsyncQuorumCallback<FullLogPrepareResponse>(
-            getAllNodes().size(),
-            response -> response != null && response.promised()
-        );
-
-        quorumCallback
-            .onSuccess(responses -> becomeLeaderForGeneration(generation, responses))
-            .onFailure(error -> failLeaderElection(error));
-
-        return quorumCallback;
+        this.<FullLogPrepareResponse>quorumRequest()
+                .acceptResponseWhen(response -> response != null && response.promised())
+                .withMessage((node, correlationId) ->
+                        createMessage(node, correlationId, prepareReq, MultiPaxosMessageTypes.FULL_LOG_PREPARE_REQUEST))
+                .send()
+                .whenComplete((responses, error) -> {
+                    if (error != null) {
+                        failLeaderElection(error);
+                    } else {
+                        becomeLeaderForGeneration(generation, responses);
+                    }
+                });
     }
 
     private void becomeLeaderForGeneration(int generation, Map<ProcessId, FullLogPrepareResponse> responses) {

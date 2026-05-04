@@ -14,7 +14,7 @@
 - [x] Update Storage to have byte[] values, so that it can have generic values.
 - [x] The API should be updated to reflect datastores like RocksDB. It should have lastKey method, which will be used by WAL like implementations
 - [x] Add WriteOptions parameter to set method which allows supporting 'sync' parameter.
-- [x] Update ListenableFuture API to add thenApply and thenCompose.
+- [x] Update TickCompletableFuture API to add thenApply and thenCompose.
 
 ## Storage Refactor
 

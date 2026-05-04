@@ -6,7 +6,7 @@ import com.distribpatterns.generation.messages.NextGenerationResponse;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.algorithms.replication.ClusterClient;
-import com.tickloom.future.ListenableFuture;
+import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.messaging.Message;
 import com.tickloom.messaging.MessageType;
 
@@ -18,7 +18,7 @@ import java.util.Map;
  * 
  * Usage:
  *   var client = new GenerationVotingClient(...);
- *   ListenableFuture<NextGenerationResponse> future = client.getNextGeneration(coordinatorId);
+ *   TickCompletableFuture<NextGenerationResponse> future = client.getNextGeneration(coordinatorId);
  *   
  * The server will run leader election and return the elected generation number.
  */
@@ -40,7 +40,7 @@ public class GenerationVotingClient extends ClusterClient {
      * @param server The server to send request to (will act as coordinator)
      * @return Future that completes with the elected generation number
      */
-    public ListenableFuture<NextGenerationResponse> getNextGeneration(ProcessId server) {
+    public TickCompletableFuture<NextGenerationResponse> getNextGeneration(ProcessId server) {
         NextGenerationRequest request = new NextGenerationRequest();
         
         System.out.println("Client " + id + ": Requesting next generation from " + server);

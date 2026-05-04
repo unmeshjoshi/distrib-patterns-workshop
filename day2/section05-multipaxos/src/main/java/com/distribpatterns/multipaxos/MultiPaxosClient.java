@@ -4,7 +4,7 @@ import com.distribpatterns.multipaxos.messages.*;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.algorithms.replication.ClusterClient;
-import com.tickloom.future.ListenableFuture;
+import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.messaging.Message;
 import com.tickloom.messaging.MessageType;
 
@@ -32,7 +32,7 @@ public class MultiPaxosClient extends ClusterClient {
      * Execute an operation in the replicated log.
      * Must be sent to current leader.
      */
-    public ListenableFuture<ExecuteCommandResponse> execute(ProcessId leader, Operation operation) {
+    public TickCompletableFuture<ExecuteCommandResponse> execute(ProcessId leader, Operation operation) {
         ExecuteCommandRequest request = new ExecuteCommandRequest(operation);
         return sendRequest(request, leader, MultiPaxosMessageTypes.CLIENT_EXECUTE_REQUEST);
     }
@@ -41,7 +41,7 @@ public class MultiPaxosClient extends ClusterClient {
      * Get a value from the key-value store.
      * Must be sent to current leader.
      */
-    public ListenableFuture<GetValueResponse> getValue(ProcessId leader, String key) {
+    public TickCompletableFuture<GetValueResponse> getValue(ProcessId leader, String key) {
         GetValueRequest request = new GetValueRequest(key);
         return sendRequest(request, leader, MultiPaxosMessageTypes.CLIENT_GET_REQUEST);
     }

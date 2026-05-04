@@ -6,7 +6,7 @@ import com.distribpatterns.twophase.messages.TwoPhaseMessageTypes;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.algorithms.replication.ClusterClient;
-import com.tickloom.future.ListenableFuture;
+import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.messaging.Message;
 import com.tickloom.messaging.MessageType;
 
@@ -34,7 +34,7 @@ public class TwoPhaseClient extends ClusterClient {
      * @param operation The operation to execute
      * @return Future that completes when operation is committed
      */
-    public ListenableFuture<ExecuteResponse> execute(ProcessId coordinator, Operation operation) {
+    public TickCompletableFuture<ExecuteResponse> execute(ProcessId coordinator, Operation operation) {
         ExecuteRequest request = new ExecuteRequest(operation);
         
         System.out.println("TwoPhaseClient: Sending execute request to " + coordinator);

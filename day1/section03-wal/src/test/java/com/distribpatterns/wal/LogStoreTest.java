@@ -1,6 +1,6 @@
 package com.distribpatterns.wal;
 
-import com.tickloom.future.ListenableFuture;
+import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.storage.SimulatedStorage;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -63,10 +63,10 @@ class LogStoreTest {
         }
 
         // Test appending to different logs
-        ListenableFuture<Boolean> shard1Append1 = logStore.append("shard1", "entry1".getBytes());
-        ListenableFuture<Boolean> shard1Append2 = logStore.append("shard1", "entry2".getBytes());
-        ListenableFuture<Boolean> shard2Append1 = logStore.append("shard2", "entry3".getBytes());
-        ListenableFuture<Boolean> shard3Append1 = logStore.append("shard3", "entry4".getBytes());
+        TickCompletableFuture<Boolean> shard1Append1 = logStore.append("shard1", "entry1".getBytes());
+        TickCompletableFuture<Boolean> shard1Append2 = logStore.append("shard1", "entry2".getBytes());
+        TickCompletableFuture<Boolean> shard2Append1 = logStore.append("shard2", "entry3".getBytes());
+        TickCompletableFuture<Boolean> shard3Append1 = logStore.append("shard3", "entry4".getBytes());
 
         storage.tick();
 

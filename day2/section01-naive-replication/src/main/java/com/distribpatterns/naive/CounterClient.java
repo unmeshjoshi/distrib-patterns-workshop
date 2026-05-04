@@ -8,7 +8,7 @@ import com.distribpatterns.naive.messages.MessageTypes;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.algorithms.replication.ClusterClient;
-import com.tickloom.future.ListenableFuture;
+import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.messaging.Message;
 import com.tickloom.messaging.MessageType;
 
@@ -27,7 +27,7 @@ public class CounterClient extends ClusterClient {
     /**
      * Send increment request to server
      */
-    public ListenableFuture<IncrementCounterResponse> increment(ProcessId server, String key, int delta) {
+    public TickCompletableFuture<IncrementCounterResponse> increment(ProcessId server, String key, int delta) {
         IncrementCounterRequest request = new IncrementCounterRequest(key, delta);
         
         System.out.println("Client: Sent INCREMENT " + key + " by " + delta + " to " + server);
@@ -38,7 +38,7 @@ public class CounterClient extends ClusterClient {
     /**
      * Send get request to server
      */
-    public ListenableFuture<GetResponse> get(ProcessId server, String key) {
+    public TickCompletableFuture<GetResponse> get(ProcessId server, String key) {
         GetRequest request = new GetRequest(key);
         
         System.out.println("Client: Sent GET " + key + " to " + server);

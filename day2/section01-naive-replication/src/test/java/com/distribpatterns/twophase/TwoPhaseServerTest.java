@@ -2,7 +2,7 @@ package com.distribpatterns.twophase;
 
 import com.distribpatterns.twophase.messages.ExecuteResponse;
 import com.tickloom.ProcessId;
-import com.tickloom.future.ListenableFuture;
+import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.testkit.Cluster;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -32,7 +32,7 @@ class TwoPhaseServerTest {
                 .start()) {
 
             var client = cluster.newClientConnectedTo(ALICE, ATHENS, TwoPhaseClient::new);
-            ListenableFuture<ExecuteResponse> executeResponse =
+            TickCompletableFuture<ExecuteResponse> executeResponse =
                 client.execute(ATHENS, new IncrementCounterOperation("counter_key", 2));
             assertEventually(cluster, () -> executeResponse.isCompleted() && !executeResponse.isFailed());
 

@@ -1,6 +1,6 @@
 package com.distribpatterns.wal;
 
-import com.tickloom.future.ListenableFuture;
+import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.storage.Storage;
 
 import java.nio.ByteBuffer;
@@ -35,7 +35,7 @@ public class LogStore {
     }
 
     private void fetchLastLogIndex(String logId, List<String> allLogIds) {
-        ListenableFuture<byte[]> lastIndexFuture = storage.lowerKey(createLogKey(logId, Long.MAX_VALUE));
+        TickCompletableFuture<byte[]> lastIndexFuture = storage.lowerKey(createLogKey(logId, Long.MAX_VALUE));
         lastIndexFuture.whenComplete((result, error) -> handleIndexResult(logId, allLogIds, result, error));
     }
 
@@ -59,7 +59,7 @@ public class LogStore {
         }
     }
 
-    public ListenableFuture<Boolean> append(String logId, byte[] entry) {
+    public TickCompletableFuture<Boolean> append(String logId, byte[] entry) {
         if (!isInitialised) {
             throw new IllegalStateException("The LogStore is not initialised");
         }
