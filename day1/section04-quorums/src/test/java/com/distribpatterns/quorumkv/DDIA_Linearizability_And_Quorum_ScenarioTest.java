@@ -45,25 +45,36 @@ public final class DDIA_Linearizability_And_Quorum_ScenarioTest
     @Test
     @DisplayName("DDIA diagram §10.6'Linearizability and quorums'-via per-link delay: Alice sees new, later Bob sees old (LIN ❌, SC ✅)")
 /**
- * Writer   Replica 1   Replica 2   Replica 3    Alice      Bob
- *   |          |           |           |          |         |
- *   |---set x=1----------------------->|          |         |
- *   |<----------ok---------------------|          |         |
- *   |          |            |          |
- *   |          |           |           |          |         |
- *   |          |           |           |
- *   |          |           |           |<--get x--|         |
- *   |          |           |           |----1---->|         |
- *   |          |           |<--get x--------------|         |
- *   |          |           |----0---------------->|         |
- *   |          |<--get x------------------------------------|
- *   |          |----0-------------------------------------->|
- *   |          |           |<--get x------------------------|
- *   |          |           |----0-------------------------->|
- *   |-set x=1->|           |          |          |          |
- *   |---set x=1-----------> |
- *   |<----------ok----------|         |          |          |
- *   |<----------------ok----|         |          |          |
+ * DDIA §10.6: quorum reads can violate linearizability.
+ *
+ * Coordinators:
+ *   writer -> athens
+ *   alice  -> byzantium
+ *   bob    -> byzantium
+ *
+ * writer          athens            byzantium          cyrene           alice            bob
+ *   |                |                   |                 |               |               |
+ *   |-- write x=1 -->|                   |                 |               |               |
+ *   |                | apply x=1         | still x=0       | still x=0     |               |
+ *   |                |                   |                 |               |               |
+ *   |                |   partition: byzantium <-> cyrene   |               |               |
+ *   |                |                   |<-- read x ------|<-- alice -----|               |
+ *   |                |<-- read x --------|                 |               |               |
+ *   |                |-- x=1 ----------->|                 |               |               |
+ *   |                |                   |-------------- x=1 ------------->|               |
+ *   |                |                   |                 |               |               |
+ *   |                | reconnect byzantium                |               |               |
+ *   |                |   partition: byzantium <-> athens  |               |               |
+ *   |                |                   |<--------------------------------|-- read x -----|
+ *   |                |                   |-- read x ----------------------->|               |
+ *   |                |                   |<----------- x=0 -----------------|               |
+ *   |                |                   |------------------------------- x=0 ------------->|
+ *   |                |-- delayed repl x=1 -->|             |               |               |
+ *   |                |----------- delayed repl x=1 -------->|               |               |
+ *   |<-------------------------------------- delayed write ok ------------------------------|
+ *
+ * Alice sees x=1 and later Bob sees x=0.
+ * Therefore the history is not linearizable, even though it can still be sequentially consistent.
  */
     void ddia106_link_delay_race()  {
         //Updates the order status..

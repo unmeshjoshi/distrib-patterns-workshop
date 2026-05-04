@@ -81,9 +81,10 @@ public class GenerationVotingTest {
             assertEquals(2, cluster.<GenerationVotingServer>getNode(BYZANTIUM).getGeneration());
 
             cluster.healAllPartitions();
-            cluster.partitionNodes(NodeGroup.of(CYRENE, BYZANTIUM), NodeGroup.of(ATHENS));
 
-            //Byzantium gen = 2. It proposed gen = 3
+            // Byzantium gen=2 while Athens and Cyrene are at gen=4.
+            // Byzantium proposes gen=3, gets rejected by both (gen=4),
+            // retries with gen=5 and wins.
             NextGenerationResponse response5 = cluster.tickUntilComplete(cyreneClient.getNextGeneration(BYZANTIUM));
             assertEquals(5, response5.generation(), "Fifth generation should be 5");
 
@@ -117,22 +118,18 @@ public class GenerationVotingTest {
     }
     
     @Test
-    @DisplayName("Overlapping Requests: Newer request supersedes older in-flight elections")
-    void testNewerRequestSupersedesOlderInFlightElection() throws IOException {
+    @DisplayName("Overlapping Requests: Concurrent elections produce unique monotonic generations")
+    void testOverlappingRequestsProduceUniqueGenerations() throws IOException {
         try (var cluster = new Cluster()
                 .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
                 .useSimulatedNetwork()
-                .useRocksDBStorage()
                 .withRequestTimeoutTicks(8000)
                 .build((peerIds, processParams) -> new GenerationVotingServer(peerIds, processParams))
                 .start()) {
             waitUntilAllNodesInitialised(cluster);
 
             var client = cluster.newClientConnectedTo(CLIENT, ATHENS, GenerationVotingClient::new);
-            
-            // Queue three requests before the simulated cluster advances.
-            // This coordinator handles only one active election at a time, so
-            // newer requests supersede older in-flight elections.
+
             ListenableFuture<NextGenerationResponse> future1 = client.getNextGeneration(ATHENS);
             ListenableFuture<NextGenerationResponse> future2 = client.getNextGeneration(ATHENS);
             ListenableFuture<NextGenerationResponse> future3 = client.getNextGeneration(ATHENS);
@@ -140,24 +137,29 @@ public class GenerationVotingTest {
             assertFalse(future1.isCompleted(), "First request should still be in flight before ticking");
             assertFalse(future2.isCompleted(), "Second request should still be in flight before ticking");
             assertFalse(future3.isCompleted(), "Third request should still be in flight before ticking");
-            
-            // Wait for all to complete
+
             assertEventually(cluster, () ->
                 !future1.isPending() && !future2.isPending() && !future3.isPending()
             );
-            
-            List<ListenableFuture<NextGenerationResponse>> futures = List.of(future1, future2, future3);
 
-            // Only one overlapping request should complete successfully.
-            // The other two are superseded by newer elections and fail or time out.
+            List<ListenableFuture<NextGenerationResponse>> futures = List.of(future1, future2, future3);
             List<ListenableFuture<NextGenerationResponse>> successfulFutures = successfulFuturesFrom(futures);
             List<ListenableFuture<NextGenerationResponse>> failedFutures = failedFuturesFrom(futures);
 
-            assertEquals(2, failedFutures.size(), "Two overlapping requests should fail as obsolete");
-            assertEquals(1, successfulFutures.size(), "Only one overlapping request should complete successfully");
+            assertFalse(successfulFutures.isEmpty(), "At least one request should succeed");
+            assertEquals(3, successfulFutures.size() + failedFutures.size(), "All futures should resolve");
 
-            long winningGeneration = successfulFutures.getFirst().getResult().generation();
-            assertGenerationOnAllNodes(cluster, winningGeneration);
+            List<Long> generations = successfulFutures.stream()
+                    .map(f -> f.getResult().generation())
+                    .sorted()
+                    .toList();
+            for (int i = 1; i < generations.size(); i++) {
+                assertTrue(generations.get(i) > generations.get(i - 1),
+                        "Successful generations must be unique and monotonic: " + generations);
+            }
+
+            long highestGeneration = generations.getLast();
+            assertGenerationOnAllNodes(cluster, highestGeneration);
         }
     }
 

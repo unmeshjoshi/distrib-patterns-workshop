@@ -16,6 +16,7 @@ import com.tickloom.network.PeerType;
 import java.util.List;
 import java.util.Map;
 
+
 /**
  * Generation Voting Server - Distributed monotonic number generation using quorum voting.
  * <p>
@@ -40,56 +41,13 @@ import java.util.Map;
  */
 public class GenerationVotingServer extends Replica {
 
-    // Monotonically increasing generation.
-
-    /*
-     * STORAGE NOTE (generation / HardState)
-     *
-     * You can persist the monotonic generation in one of two ways:
-     *
-     * A) Custom WAL (etcd-style)
-     *    - Append entries, then HardState (generation), then fsync once.
-     *    - On restart, replay the WAL; the last HardState is authoritative.
-     *    - Examples:
-     *        • etcd (Raft WAL under member/wal)
-     *
-     * B) RocksDB-backed storage (KV-as-log; rely on RocksDB’s own WAL)
-     *    - Store generation under a fixed key (e.g., GEN_KEY) as big-endian 64-bit.
-     *    - If batching other state, write together in one WriteBatch with sync=true so
-     *      they become durable in the same crash cut (RocksDB WAL handles journaling/fsync).
-     *
-     * Invariant (critical):
-     *   - Generation must be durable and monotonic across restarts.
-     *
-     * This code currently uses option B for simplicity.
-     */
-
     private long generation = 0L;
 
-    // Maximum retry attempts for failed elections
     private static final int MAX_ELECTION_ATTEMPTS = 5;
-
-    private static final String GENERATION_KEY = "generation";
     private long highestProposal = 0L;
 
     public GenerationVotingServer(List<ProcessId> peerIds, ProcessParams params) {
         super(peerIds, params);
-        // Initialization is handled by Process.initialise()
-    }
-
-    @Override
-    protected ListenableFuture<?> onInit() {
-        // Load initial generation using standardized method
-        return load(GENERATION_KEY, Long.class).whenComplete((loadedGeneration, error) -> {
-            if (error != null) {
-                System.err.println(id + ": Failed to load generation: " + error.getMessage());
-                return;
-            }
-
-            if (loadedGeneration != null) {
-                generation = loadedGeneration;
-            }
-        });
     }
 
     @Override
@@ -201,18 +159,8 @@ public class GenerationVotingServer extends Replica {
     }
 
 
-    private static boolean isPromiseFor(PrepareResponse response, long proposedGeneration) {
-        return response != null
-                && response.promised()
-                && response.currentGeneration() == proposedGeneration;
-    }
-
     private int clusterSize() {
         return getAllNodes().size();
-    }
-
-    private static NextGenerationResponse failureResponse() {
-        return new NextGenerationResponse(0);
     }
 
     private ListenableFuture<Void> respondToClient(Message clientMessage, NextGenerationResponse body) {
@@ -258,19 +206,9 @@ public class GenerationVotingServer extends Replica {
     }
 
     private ListenableFuture<Boolean> accept(Message message, long proposed) {
-        this.generation = proposed; // Update locally but respond only after it is persisted.
-        // Immediate local update is important because it rejects any new PREPARE
-        // requests at this generation while the persist operation is still in flight.
-        // Persist first; only then consider it "promised"
-        return persist(GENERATION_KEY, proposed).map(success -> {
-            if (success) {
-                System.out.println(id + ": ACCEPTED generation " + proposed + " from " + message.source());
-            } else {
-                System.out.println(id + ": PERSIST FAILED for generation " + proposed +
-                        " from " + message.source());
-            }
-            return success;
-        });
+        this.generation = proposed;
+        System.out.println(id + ": ACCEPTED generation " + proposed + " from " + message.source());
+        return completedFuture(true);
     }
 
     private void sendPrepareResponse(Message prepareMessage, boolean promised) {

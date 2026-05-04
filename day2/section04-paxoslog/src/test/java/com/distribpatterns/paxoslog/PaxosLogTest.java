@@ -80,9 +80,9 @@ public class PaxosLogTest {
             ));
             
             PaxosLogServer athens = getServer(cluster, ATHENS);
-            assertHighWaterMarkOnAllReplicas(cluster, 1);
+            assertHighWaterMarkOnAllReplicas(cluster, 2);
             assertEquals("Microservices", athens.getValue(TITLE_KEY));
-            assertEquals("Martin", athens.getValue(AUTHOR_KEY));
+            assertEquals("Martin Fowler", athens.getValue(AUTHOR_KEY));
         }
     }
     

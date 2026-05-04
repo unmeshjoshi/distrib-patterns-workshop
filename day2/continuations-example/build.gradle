@@ -1,0 +1,9 @@
+plugins {
+    id 'org.jetbrains.kotlin.jvm' version '1.9.23'
+}
+
+dependencies {
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib:1.9.23'
+    // Include the original package so we can reuse TwoPhaseClient and IncrementCounterOperation
+    implementation project(':day2:section01-naive-replication')
+}

@@ -12,4 +12,5 @@ include 'day2:section04-paxoslog'
 include 'day2:section05-multipaxos'
 include 'day2:section06-multipaxos-heartbeats'
 include 'day2:section07-raft'
+include 'day2:continuations-example'
 
