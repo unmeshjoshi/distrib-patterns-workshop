@@ -167,10 +167,8 @@ public class PaxosLogServer extends Replica {
         System.out.println(id + ": Phase 1 - PREPARE for index " + logIndex + ", generation " + generation);
 
         PrepareRequest prepareReq = new PrepareRequest(logIndex, generation);
-        this.<PrepareResponse>quorumRequest()
-                .acceptResponseWhen(response -> response != null && response.promised())
-                .withMessage((node, correlationId) ->
-                        createMessage(node, correlationId, prepareReq, PaxosLogMessageTypes.PREPARE_REQUEST))
+        this.<PrepareResponse>quorumRequest(PaxosLogMessageTypes.PREPARE_REQUEST, prepareReq)
+                .countResponseIf(response -> response != null && response.promised())
                 .send()
                 .whenComplete((responses, error) -> {
                     if (error != null) {
@@ -201,10 +199,8 @@ public class PaxosLogServer extends Replica {
         System.out.println(id + ": Phase 2 - PROPOSE " + valueToPropose + " for index " + logIndex);
 
         ProposeRequest proposeReq = new ProposeRequest(logIndex, generation, valueToPropose);
-        this.<ProposeResponse>quorumRequest()
-                .acceptResponseWhen(response -> response != null && response.accepted())
-                .withMessage((node, correlationId) ->
-                        createMessage(node, correlationId, proposeReq, PaxosLogMessageTypes.PROPOSE_REQUEST))
+        this.<ProposeResponse>quorumRequest(PaxosLogMessageTypes.PROPOSE_REQUEST, proposeReq)
+                .countResponseIf(response -> response != null && response.accepted())
                 .send()
                 .whenComplete((responses, error) -> {
                     if (error != null) {
@@ -253,10 +249,8 @@ public class PaxosLogServer extends Replica {
         }
 
         CommitRequest commitReq = new CommitRequest(logIndex, generation, agreedValue);
-        this.<CommitResponse>quorumRequest()
-                .acceptResponseWhen(response -> response != null && response.success())
-                .withMessage((node, correlationId) ->
-                        createMessage(node, correlationId, commitReq, PaxosLogMessageTypes.COMMIT_REQUEST))
+        this.<CommitResponse>quorumRequest(PaxosLogMessageTypes.COMMIT_REQUEST, commitReq)
+                .countResponseIf(response -> response != null && response.success())
                 .send()
                 .whenComplete((responses, error) -> {
                     if (error != null) {

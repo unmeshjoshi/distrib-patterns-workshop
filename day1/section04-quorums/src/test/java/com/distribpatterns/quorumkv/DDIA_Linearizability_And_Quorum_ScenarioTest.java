@@ -49,7 +49,7 @@ public final class DDIA_Linearizability_And_Quorum_ScenarioTest
  *
  * Coordinators:
  *   writer -> athens
- *   alice  -> byzantium
+ *   alice  -> cyrene
  *   bob    -> byzantium
  *
  * writer          athens            byzantium          cyrene           alice            bob

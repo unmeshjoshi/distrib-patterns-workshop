@@ -28,3 +28,9 @@ Thumbs.db
 
 # Jepsen stores generated with jepsen tests.
 store
+
+# TLA / TLC artifacts
+*_TTrace_*.bin
+*.bin
+tla/states/
+states/
