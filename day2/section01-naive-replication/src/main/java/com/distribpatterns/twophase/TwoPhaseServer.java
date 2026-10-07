@@ -184,10 +184,8 @@ public class TwoPhaseServer extends Replica {
             Operation operation
     ) {
         AcceptRequest acceptReq = new AcceptRequest(requestId, operation);
-        var future = this.<AcceptResponse>quorumRequest()
-                .acceptResponseWhen(response -> response != null && response.accepted())
-                .withMessage((node, correlationId) ->
-                        createMessage(node, correlationId, acceptReq, TwoPhaseMessageTypes.ACCEPT_REQUEST))
+        var future = this.<AcceptResponse>quorumRequest(TwoPhaseMessageTypes.ACCEPT_REQUEST, acceptReq)
+                .countResponseIf(response -> response != null && response.accepted())
                 .send();
 
         System.out.println(id + ": Sent ACCEPT to " + getAllNodes().size() + " nodes");

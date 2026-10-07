@@ -186,10 +186,8 @@ public class MultiPaxosWithHeartbeatsServer extends Replica {
         System.out.println(id + ": Phase 1 - PROPOSE " + operation + " for index " + logIndex);
 
         ProposeRequest proposeReq = new ProposeRequest(logIndex, generation, operation);
-        this.<ProposeResponse>quorumRequest()
-                .acceptResponseWhen(response -> response != null && response.accepted())
-                .withMessage((node, correlationId) ->
-                        createMessage(node, correlationId, proposeReq, MultiPaxosMessageTypes.PROPOSE_REQUEST))
+        this.<ProposeResponse>quorumRequest(MultiPaxosMessageTypes.PROPOSE_REQUEST, proposeReq)
+                .countResponseIf(response -> response != null && response.accepted())
                 .send()
                 .whenComplete((responses, error) -> {
                     if (error != null) {
@@ -214,10 +212,8 @@ public class MultiPaxosWithHeartbeatsServer extends Replica {
         registerClientForCommittedIndex(logIndex, clientKey);
 
         CommitRequest commitReq = new CommitRequest(logIndex, generation, operation);
-        this.<CommitResponse>quorumRequest()
-                .acceptResponseWhen(response -> response != null && response.success())
-                .withMessage((node, correlationId) ->
-                        createMessage(node, correlationId, commitReq, MultiPaxosMessageTypes.COMMIT_REQUEST))
+        this.<CommitResponse>quorumRequest(MultiPaxosMessageTypes.COMMIT_REQUEST, commitReq)
+                .countResponseIf(response -> response != null && response.success())
                 .send()
                 .whenComplete((responses, error) -> {
                     if (error != null) {
@@ -288,10 +284,8 @@ public class MultiPaxosWithHeartbeatsServer extends Replica {
         System.out.println(id + ": Sending FULL_LOG_PREPARE with generation " + generation);
 
         FullLogPrepareRequest prepareReq = new FullLogPrepareRequest(generation);
-        this.<FullLogPrepareResponse>quorumRequest()
-                .acceptResponseWhen(response -> response != null && response.promised())
-                .withMessage((node, correlationId) ->
-                        createMessage(node, correlationId, prepareReq, MultiPaxosMessageTypes.FULL_LOG_PREPARE_REQUEST))
+        this.<FullLogPrepareResponse>quorumRequest(MultiPaxosMessageTypes.FULL_LOG_PREPARE_REQUEST, prepareReq)
+                .countResponseIf(response -> response != null && response.promised())
                 .send()
                 .whenComplete((responses, error) -> {
                     if (error != null) {

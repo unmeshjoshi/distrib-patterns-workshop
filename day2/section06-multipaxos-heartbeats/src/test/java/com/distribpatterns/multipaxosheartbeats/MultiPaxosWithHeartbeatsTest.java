@@ -56,7 +56,7 @@ public class MultiPaxosWithHeartbeatsTest {
             waitUntilAllNodesInitialised(cluster);
 
             ProcessId initialLeader = waitUntilLeaderElected(cluster);
-            cluster.delayForClusterTicks(50);
+            tickFor(cluster, 50);
 
             assertEquals(initialLeader, currentLeaderId(cluster), "Heartbeats should keep the same leader in place");
             assertEquals(1, leaderCount(cluster), "Heartbeats should prevent a second election");
@@ -102,7 +102,7 @@ public class MultiPaxosWithHeartbeatsTest {
             ProcessId initialLeader = waitUntilLeaderElected(cluster);
             int initialGeneration = getServer(cluster, initialLeader).getPromisedGeneration();
 
-            cluster.delayForClusterTicks(200);
+            tickFor(cluster, 200);
 
             assertEquals(initialLeader, currentLeaderId(cluster), "The same leader should remain in charge");
             assertEquals(initialGeneration, getServer(cluster, initialLeader).getPromisedGeneration(),
@@ -178,5 +178,11 @@ public class MultiPaxosWithHeartbeatsTest {
         assertEquals(expectedGeneration, getServer(cluster, ATHENS).getPromisedGeneration());
         assertEquals(expectedGeneration, getServer(cluster, BYZANTIUM).getPromisedGeneration());
         assertEquals(expectedGeneration, getServer(cluster, CYRENE).getPromisedGeneration());
+    }
+
+    private static void tickFor(Cluster cluster, int ticks) {
+        for (int i = 0; i < ticks; i++) {
+            cluster.tick();
+        }
     }
 }

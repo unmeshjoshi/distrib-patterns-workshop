@@ -9,6 +9,8 @@ import com.tickloom.messaging.MessageType;
 import com.tickloom.messaging.RequestCallback;
 import com.tickloom.util.Timeout;
 
+import java.util.Random;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -53,7 +55,11 @@ public class RaftServer extends Replica {
 
     private static final int HEARTBEAT_INTERVAL_TICKS = 10;
 
-    private final Timeout electionTimeout;
+    // Randomized per reset (Raft §5.2), so nodes that time out together do not keep splitting the vote. Seeded from
+    // the node id, so a simulation run stays deterministic.
+    private final int electionTimeoutTicks;
+    private final Random electionJitter;
+    private Timeout electionTimeout;
     private final Timeout heartbeatInterval;
 
     // ========== LEADER TRACKING ==========
@@ -65,7 +71,9 @@ public class RaftServer extends Replica {
 
         log.add(new LogEntry(0, 0, new NoOpOperation()));
 
-        this.electionTimeout = new Timeout(id + "-election-timeout", electionTimeoutTicks);
+        this.electionTimeoutTicks = electionTimeoutTicks;
+        this.electionJitter = new Random(id.hashCode());
+        this.electionTimeout = newElectionTimeout();
         this.heartbeatInterval = new Timeout(id + "-heartbeat-interval", HEARTBEAT_INTERVAL_TICKS);
 
         becomeFollower(currentTerm);
@@ -423,10 +431,8 @@ public class RaftServer extends Replica {
             getLastLogTerm()
         );
 
-        this.<RequestVoteResponse>quorumRequest()
-                .acceptResponseWhen(response -> response != null && response.voteGranted())
-                .withMessage((node, correlationId) ->
-                        createMessage(node, correlationId, request, RaftMessageTypes.REQUEST_VOTE_REQUEST))
+        this.<RequestVoteResponse>quorumRequest(RaftMessageTypes.REQUEST_VOTE_REQUEST, request)
+                .countResponseIf(response -> response != null && response.voteGranted())
                 .send()
                 .whenComplete((responses, error) -> {
                     if (error != null) {
@@ -597,7 +603,12 @@ public class RaftServer extends Replica {
     }
 
     private void resetElectionTimeout() {
+        electionTimeout = newElectionTimeout();
         electionTimeout.start();
+    }
+
+    private Timeout newElectionTimeout() {
+        return new Timeout(id + "-election-timeout", electionTimeoutTicks + electionJitter.nextInt(electionTimeoutTicks));
     }
 
     private void startHeartbeatInterval() {
@@ -611,7 +622,7 @@ public class RaftServer extends Replica {
         return state == RaftState.LEADER;
     }
 
-    public RaftState getState() {
+    public RaftState getRaftState() {
         return state;
     }
 

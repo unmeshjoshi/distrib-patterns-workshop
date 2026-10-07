@@ -40,7 +40,7 @@ public class NaiveReplicationServerTest {
 
             var client = cluster.newClientConnectedTo(ALICE, ATHENS, CounterClient::new);
 
-            int delay = cluster.delayForClusterTicks(2);
+            int delay = 2; // one network tick per cluster tick
             cluster.delayForMessageType(MessageTypes.REPLICATE_OP, ATHENS, List.of(BYZANTIUM, CYRENE), delay);
 
 

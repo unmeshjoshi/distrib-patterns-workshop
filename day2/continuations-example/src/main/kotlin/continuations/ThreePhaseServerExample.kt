@@ -61,22 +61,16 @@ class ThreePhaseServerExample(
 
     private suspend fun awaitQueryQuorum(queryId: String): Map<ProcessId, QueryResponse> {
         val queryReq = QueryRequest(queryId)
-        return quorumRequest<QueryResponse>()
-            .acceptResponseWhen { it != null }
-            .withMessage { node, correlationId ->
-                createMessage(node, correlationId, queryReq, TwoPhaseMessageTypes.QUERY_REQUEST)
-            }
+        return quorumRequest<QueryResponse>(TwoPhaseMessageTypes.QUERY_REQUEST, queryReq)
+            .countResponseIf { it != null }
             .send()
             .await()
     }
 
     private suspend fun awaitAcceptQuorum(requestId: String, operation: Operation): Map<ProcessId, AcceptResponse> {
         val acceptReq = AcceptRequest(requestId, operation)
-        return quorumRequest<AcceptResponse>()
-            .acceptResponseWhen { it != null && it.accepted() }
-            .withMessage { node, correlationId ->
-                createMessage(node, correlationId, acceptReq, TwoPhaseMessageTypes.ACCEPT_REQUEST)
-            }
+        return quorumRequest<AcceptResponse>(TwoPhaseMessageTypes.ACCEPT_REQUEST, acceptReq)
+            .countResponseIf { it != null && it.accepted() }
             .send()
             .await()
     }

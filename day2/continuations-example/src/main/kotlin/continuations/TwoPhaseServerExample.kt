@@ -47,11 +47,8 @@ class TwoPhaseServerExample(peerIds: MutableList<ProcessId>, processParams: Proc
 
     private suspend fun awaitAcceptQuorum(requestId: String, request: ExecuteRequest): Map<ProcessId, AcceptResponse> {
         val acceptReq = AcceptRequest(requestId, request.operation())
-        return quorumRequest<AcceptResponse>()
-            .acceptResponseWhen { response -> response != null && response.accepted() }
-            .withMessage { node, correlationId ->
-                createMessage(node, correlationId, acceptReq, TwoPhaseMessageTypes.ACCEPT_REQUEST)
-            }
+        return quorumRequest<AcceptResponse>(TwoPhaseMessageTypes.ACCEPT_REQUEST, acceptReq)
+            .countResponseIf { response -> response != null && response.accepted() }
             .send()
             .await()
     }

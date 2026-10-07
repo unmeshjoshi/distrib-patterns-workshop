@@ -44,7 +44,7 @@ public class PaxosServer extends Replica {
     }
 
     @Override
-    protected TickCompletableFuture<?> onInit() {
+    protected TickCompletableFuture<?> onStart() {
         // Load initial state using standardized method
         return load(PAXOS_STATE_KEY, PaxosState.class).whenComplete((loadedState, error) -> {
             if (error != null) {
@@ -109,10 +109,8 @@ public class PaxosServer extends Replica {
         System.out.println(id + ": Phase 1 - PREPARE with generation " + generation);
 
         PrepareRequest prepareReq = new PrepareRequest(generation);
-        this.<PrepareResponse>quorumRequest()
-                .acceptResponseWhen(response -> isPromiseFor(response, generation))
-                .withMessage((node, correlationId) ->
-                        createMessage(node, correlationId, prepareReq, PaxosMessageTypes.PREPARE_REQUEST))
+        this.<PrepareResponse>quorumRequest(PaxosMessageTypes.PREPARE_REQUEST, prepareReq)
+                .countResponseIf(response -> isPromiseFor(response, generation))
                 .send()
                 .whenComplete((responses, error) -> {
                     if (error != null) {
@@ -133,10 +131,8 @@ public class PaxosServer extends Replica {
         System.out.println(id + ": Phase 2 - PROPOSE value " + valueToPropose + " with generation " + generation);
 
         ProposeRequest proposeReq = new ProposeRequest(generation, valueToPropose);
-        this.<ProposeResponse>quorumRequest()
-                .acceptResponseWhen(response -> isAcceptedFor(response, generation))
-                .withMessage((node, correlationId) ->
-                        createMessage(node, correlationId, proposeReq, PaxosMessageTypes.PROPOSE_REQUEST))
+        this.<ProposeResponse>quorumRequest(PaxosMessageTypes.PROPOSE_REQUEST, proposeReq)
+                .countResponseIf(response -> isAcceptedFor(response, generation))
                 .send()
                 .whenComplete((responses, error) -> {
                     if (error != null) {
@@ -155,10 +151,8 @@ public class PaxosServer extends Replica {
         System.out.println(id + ": Phase 3 - COMMIT value " + committedOperation);
 
         CommitRequest commitReq = new CommitRequest(generation, clientMessage, committedOperation);
-        this.<CommitResponse>quorumRequest()
-                .acceptResponseWhen(response -> response != null && response.committed())
-                .withMessage((node, correlationId) ->
-                        createMessage(node, correlationId, commitReq, PaxosMessageTypes.COMMIT_REQUEST))
+        this.<CommitResponse>quorumRequest(PaxosMessageTypes.COMMIT_REQUEST, commitReq)
+                .countResponseIf(response -> response != null && response.committed())
                 .send()
                 .whenComplete((acks, err) -> {
                     if (err != null) {
@@ -398,7 +392,7 @@ public class PaxosServer extends Replica {
 
     // ========== PUBLIC ACCESSORS FOR TESTING ==========
 
-    public PaxosState getState() {
+    public PaxosState getPaxosState() {
         return state;
     }
 

@@ -146,9 +146,9 @@ public class PaxosTest {
     }
 
     private static void assertCommittedValueOnAllReplicas(Cluster cluster) {
-        assertTrue(getServer(cluster, ATHENS).getState().committedValue().isPresent(), "Athens should have committed");
-        assertTrue(getServer(cluster, BYZANTIUM).getState().committedValue().isPresent(), "Byzantium should have committed");
-        assertTrue(getServer(cluster, CYRENE).getState().committedValue().isPresent(), "Cyrene should have committed");
+        assertTrue(getServer(cluster, ATHENS).getPaxosState().committedValue().isPresent(), "Athens should have committed");
+        assertTrue(getServer(cluster, BYZANTIUM).getPaxosState().committedValue().isPresent(), "Byzantium should have committed");
+        assertTrue(getServer(cluster, CYRENE).getPaxosState().committedValue().isPresent(), "Cyrene should have committed");
     }
 
     private static PaxosServer getServer(Cluster cluster, ProcessId id) {

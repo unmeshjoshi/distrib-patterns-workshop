@@ -328,23 +328,17 @@ public class QuorumKVReplica extends Replica {
     }
 
     private TickCompletableFuture<Map<ProcessId, InternalGetResponse>> broadcastInternalGetRequest(GetRequest request) {
-        return this.<InternalGetResponse>quorumRequest()
-                .acceptResponseWhen(response -> response != null)
-                .withMessage((node, internalCorrelationId) -> {
-                    var internalRequest = new InternalGetRequest(request.key());
-                    return createMessage(node, internalCorrelationId, internalRequest, QuorumKVMessageTypes.INTERNAL_GET_REQUEST);
-                })
+        var internalRequest = new InternalGetRequest(request.key());
+        return this.<InternalGetResponse>quorumRequest(QuorumKVMessageTypes.INTERNAL_GET_REQUEST, internalRequest)
+                .countResponseIf(response -> response != null)
                 .send();
     }
 
     private TickCompletableFuture<Map<ProcessId, InternalSetResponse>> broadcastInternalSetRequest(byte[] key,
                                                                                                    VersionedValue value) {
-        return this.<InternalSetResponse>quorumRequest()
-                .acceptResponseWhen(response -> response != null && response.success())
-                .withMessage((node, internalCorrelationId) -> {
-                    var internalRequest = new InternalSetRequest(key, value.value(), value.timestamp());
-                    return createMessage(node, internalCorrelationId, internalRequest, QuorumKVMessageTypes.INTERNAL_SET_REQUEST);
-                })
+        var internalRequest = new InternalSetRequest(key, value.value(), value.timestamp());
+        return this.<InternalSetResponse>quorumRequest(QuorumKVMessageTypes.INTERNAL_SET_REQUEST, internalRequest)
+                .countResponseIf(response -> response != null && response.success())
                 .send();
     }
 

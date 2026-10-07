@@ -119,20 +119,16 @@ public class ThreePhaseServer extends Replica {
 
         private TickCompletableFuture<Map<ProcessId, QueryResponse>> queryForPendingRequests() {
             var queryReq = new QueryRequest(createRequestId());
-            return ThreePhaseServer.this.<QueryResponse>quorumRequest()
-                    .acceptResponseWhen(response -> response != null)
-                    .withMessage((node, correlationId) ->
-                            createMessage(node, correlationId, queryReq, TwoPhaseMessageTypes.QUERY_REQUEST))
+            return ThreePhaseServer.this.<QueryResponse>quorumRequest(TwoPhaseMessageTypes.QUERY_REQUEST, queryReq)
+                    .countResponseIf(response -> response != null)
                     .send();
         }
 
         private TickCompletableFuture<Map<ProcessId, AcceptResponse>> sendAcceptToAll(
                 String requestId, Operation operation) {
             var acceptReq = new AcceptRequest(requestId, operation);
-            return ThreePhaseServer.this.<AcceptResponse>quorumRequest()
-                    .acceptResponseWhen(response -> response != null && response.accepted())
-                    .withMessage((node, correlationId) ->
-                            createMessage(node, correlationId, acceptReq, TwoPhaseMessageTypes.ACCEPT_REQUEST))
+            return ThreePhaseServer.this.<AcceptResponse>quorumRequest(TwoPhaseMessageTypes.ACCEPT_REQUEST, acceptReq)
+                    .countResponseIf(response -> response != null && response.accepted())
                     .send();
         }
 
