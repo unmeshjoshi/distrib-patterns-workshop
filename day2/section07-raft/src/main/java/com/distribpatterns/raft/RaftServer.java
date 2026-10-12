@@ -4,10 +4,15 @@ import com.distribpatterns.raft.messages.*;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
+import com.tickloom.fs.FileIO;
+import com.tickloom.fs.OpenMode;
+import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.messaging.Message;
 import com.tickloom.messaging.MessageType;
 import com.tickloom.messaging.RequestCallback;
 import com.tickloom.util.Timeout;
+import com.tickloom.wal.BatchedLog;
+import com.tickloom.wal.Wal;
 
 import java.util.Random;
 
@@ -15,6 +20,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -27,6 +33,11 @@ import java.util.UUID;
  * 1. Election Restriction (§5.4.1): Voters only grant votes to candidates with up-to-date logs
  * 2. Current-Term Commit Rule (§5.4.2): Only commit entries from current term
  * 3. Log Consistency Check (§5.3): AppendEntries includes prevLogIndex/prevLogTerm
+ *
+ * DURABILITY: the persistent state of Figure 2 (current term, vote, log) goes into one write-ahead log. A server
+ * changes its in-memory state first and sends the reply only once the records behind it are durable, so it never
+ * tells anyone about a vote, a term or an entry it could forget. A candidate persists its own vote before it asks for
+ * others, and a leader counts its own log towards a majority only up to the index that is durable.
  */
 public class RaftServer extends Replica {
 
@@ -35,6 +46,22 @@ public class RaftServer extends Replica {
     private int currentTerm = 0;
     private ProcessId votedFor = null;
     private final List<LogEntry> log = new ArrayList<>();
+
+    // What the write-ahead log holds, or is about to hold: the term and vote last appended to it.
+    private static final String WAL_FILE = "raft.wal";
+    private static final int GROUP_WAIT_TICKS = 2;
+    private FileIO walFile;
+    private BatchedLog wal;
+    private int loggedTerm = 0;
+    private ProcessId loggedVotedFor = null;
+    // Records are durable in the order they were appended, so a count says how many are. A reply waits for the
+    // count of records appended when it was decided.
+    private long appendedRecords = 0;
+    private long durableRecords = 0;
+    private record WaitingReply(long afterRecord, Runnable reply) {}
+    private final java.util.ArrayDeque<WaitingReply> waitingReplies = new java.util.ArrayDeque<>();
+    // Highest log index whose record is durable on this server.
+    private int durableLastIndex = 0;
 
     // ========== VOLATILE STATE (all servers) ==========
 
@@ -94,8 +121,107 @@ public class RaftServer extends Replica {
         );
     }
 
+    /** The server is not running until its term, vote and log are rebuilt from the write-ahead log. */
+    @Override
+    protected TickCompletableFuture<?> onStart() {
+        if (walFile != null) {
+            walFile.close();   // a restart on the same instance: let go of the old handle
+        }
+        currentTerm = 0;
+        votedFor = null;
+        log.clear();
+        log.add(new LogEntry(0, 0, new NoOpOperation()));
+        kvStore.clear();
+        commitIndex = 0;
+        lastApplied = 0;
+        wal = null;
+        appendedRecords = 0;
+        durableRecords = 0;
+        waitingReplies.clear();
+        durableLastIndex = 0;
+        return fileSystem.open(WAL_FILE, OpenMode.OPEN_OR_CREATE)
+                // A new file's name is durable only after the directory is synced.
+                .thenCompose(opened -> fileSystem.syncDirectory().thenApply(ignored -> opened))
+                .thenCompose(opened -> {
+                    walFile = opened;
+                    Wal recovering = new Wal(opened);
+                    return recovering.recover().thenApply(entries -> {
+                        entries.forEach(entry -> replay(deserializePayload(entry.payload(), RaftRecord.class)));
+                        loggedTerm = currentTerm;
+                        loggedVotedFor = votedFor;
+                        durableLastIndex = getLastLogIndex();
+                        wal = new BatchedLog(recovering, GROUP_WAIT_TICKS);
+                        // A restarted server is a follower. The commit index and the state machine come back
+                        // from the leader's next AppendEntries.
+                        becomeFollower(currentTerm);
+                        return (Void) null;
+                    });
+                });
+    }
+
+    private void replay(RaftRecord record) {
+        switch (record.kind()) {
+            case HARD_STATE -> {
+                currentTerm = record.term();
+                votedFor = record.votedFor();
+            }
+            case ENTRY -> {
+                while (log.size() > record.entry().index()) {
+                    log.remove(log.size() - 1);
+                }
+                log.add(record.entry());
+            }
+        }
+    }
+
+    /**
+     * Appends the record to the log and runs {@code onDurable} once it is on disk, before any reply that was waiting
+     * for it. The caller has already changed the in-memory state. If the append fails the log is unusable, so
+     * nothing that depends on it runs.
+     */
+    private void record(RaftRecord record, Runnable onDurable) {
+        long recordNumber = ++appendedRecords;
+        wal.append(serializePayload(record)).whenComplete((offset, error) -> {
+            if (error != null) {
+                System.err.println(id + ": Write-ahead log failed: " + error.getMessage());
+                return;
+            }
+            durableRecords = recordNumber;
+            onDurable.run();
+            while (!waitingReplies.isEmpty() && waitingReplies.peekFirst().afterRecord() <= durableRecords) {
+                waitingReplies.pollFirst().reply().run();
+            }
+        });
+    }
+
+    /** Logs the term and the vote if either has changed since the last time they were logged. */
+    private void recordHardStateIfChanged() {
+        if (wal == null) {
+            return;   // still starting up
+        }
+        if (currentTerm == loggedTerm && Objects.equals(votedFor, loggedVotedFor)) {
+            return;
+        }
+        loggedTerm = currentTerm;
+        loggedVotedFor = votedFor;
+        record(RaftRecord.hardState(currentTerm, votedFor), () -> {});
+    }
+
+    /** Runs {@code reply} once everything appended so far is durable, at once if it already is. */
+    private void replyWhenDurable(Runnable reply) {
+        if (durableRecords == appendedRecords) {
+            reply.run();
+            return;
+        }
+        waitingReplies.addLast(new WaitingReply(appendedRecords, reply));
+    }
+
     @Override
     public void onTick() {
+        if (wal == null) {
+            return;   // still recovering
+        }
+        wal.tick();
         super.onTick();
         electionTimeout.tick();
         heartbeatInterval.tick();
@@ -150,9 +276,19 @@ public class RaftServer extends Replica {
 
     private int appendLogEntry(Operation operation, String clientKey) {
         int newIndex = log.size();
-        log.add(new LogEntry(newIndex, currentTerm, operation, clientKey));
+        LogEntry entry = new LogEntry(newIndex, currentTerm, operation, clientKey);
+        log.add(entry);
+        recordEntry(entry);
         System.out.println(id + ": Appended entry at index " + newIndex + " (term " + currentTerm + ")");
         return newIndex;
+    }
+
+    /** Logs an entry. Once it is durable it counts towards a majority for the server's own log. */
+    private void recordEntry(LogEntry entry) {
+        record(RaftRecord.entry(entry), () -> {
+            durableLastIndex = entry.index();
+            updateCommitIndex();
+        });
     }
 
     private String clientKeyFor(Message clientMessage) {
@@ -199,7 +335,8 @@ public class RaftServer extends Replica {
             denyVoteTo(request.candidateId(), request.term(), isLogUpToDate(request.lastLogIndex(), request.lastLogTerm()));
         }
 
-        sendRequestVoteResponse(message, voteGranted);
+        int term = currentTerm;
+        replyWhenDurable(() -> sendRequestVoteResponse(message, term, voteGranted));
     }
 
     private void updateTermIfNeeded(int term) {
@@ -217,6 +354,7 @@ public class RaftServer extends Replica {
 
     private void grantVoteTo(ProcessId candidateId, int lastLogIndex, int lastLogTerm) {
         votedFor = candidateId;
+        recordHardStateIfChanged();
         resetElectionTimeout();
         System.out.println(id + ": Granted vote to " + candidateId +
             " (log up-to-date: lastIndex=" + lastLogIndex + ", lastTerm=" + lastLogTerm + ")");
@@ -229,11 +367,11 @@ public class RaftServer extends Replica {
             " (termOk=" + termOk + ", notVoted=" + notVoted + ", logUpToDate=" + logUpToDate + ")");
     }
 
-    private void sendRequestVoteResponse(Message requestMessage, boolean voteGranted) {
+    private void sendRequestVoteResponse(Message requestMessage, int term, boolean voteGranted) {
         send(createMessage(
             requestMessage.source(),
             requestMessage.correlationId(),
-            new RequestVoteResponse(currentTerm, voteGranted),
+            new RequestVoteResponse(term, voteGranted),
             RaftMessageTypes.REQUEST_VOTE_RESPONSE
         ));
     }
@@ -276,7 +414,13 @@ public class RaftServer extends Replica {
 
         appendEntries(request.prevLogIndex(), request.entries());
         advanceCommitIndex(request.leaderCommit());
-        sendAppendEntriesResponse(message, true, getLastLogIndex());
+        // Only what this request checked is known to match the leader's log. Entries beyond it may be a stale suffix.
+        replyToAppendEntries(message, true, request.prevLogIndex() + request.entries().size());
+    }
+
+    private void replyToAppendEntries(Message message, boolean success, int matchIndex) {
+        int term = currentTerm;
+        replyWhenDurable(() -> sendAppendEntriesResponse(message, term, success, matchIndex));
     }
 
     private boolean rejectAppendEntriesIfStale(Message message, int requestTerm) {
@@ -284,7 +428,7 @@ public class RaftServer extends Replica {
             return false;
         }
 
-        sendAppendEntriesResponse(message, false, 0);
+        replyToAppendEntries(message, false, 0);
         return true;
     }
 
@@ -305,7 +449,7 @@ public class RaftServer extends Replica {
 
         if (prevLogIndex >= log.size()) {
             System.out.println(id + ": Rejecting AppendEntries - prevLogIndex " + prevLogIndex + " beyond log end");
-            sendAppendEntriesResponse(message, false, 0);
+            replyToAppendEntries(message, false, 0);
             return true;
         }
 
@@ -316,7 +460,7 @@ public class RaftServer extends Replica {
 
         System.out.println(id + ": Rejecting AppendEntries - prevLogTerm mismatch at index " +
             prevLogIndex + " (expected " + prevLogTerm + ", got " + prevEntry.term() + ")");
-        sendAppendEntriesResponse(message, false, 0);
+        replyToAppendEntries(message, false, 0);
         return true;
     }
 
@@ -335,9 +479,11 @@ public class RaftServer extends Replica {
                 if (existingEntry.term() != newEntry.term()) {
                     truncateLogFrom(entryIndex);
                     log.add(newEntry);
+                    recordEntry(newEntry);
                 }
             } else {
                 log.add(newEntry);
+                recordEntry(newEntry);
             }
         }
 
@@ -361,11 +507,11 @@ public class RaftServer extends Replica {
         applyCommittedEntries();
     }
 
-    private void sendAppendEntriesResponse(Message requestMessage, boolean success, int matchIndex) {
+    private void sendAppendEntriesResponse(Message requestMessage, int term, boolean success, int matchIndex) {
         send(createMessage(
             requestMessage.source(),
             requestMessage.correlationId(),
-            new AppendEntriesResponse(currentTerm, success, matchIndex),
+            new AppendEntriesResponse(term, success, matchIndex),
             RaftMessageTypes.APPEND_ENTRIES_RESPONSE
         ));
     }
@@ -421,11 +567,24 @@ public class RaftServer extends Replica {
     private void startElection() {
         becomeCandidate();
         votedFor = id;
+        recordHardStateIfChanged();
 
-        System.out.println(id + ": Starting election for term " + currentTerm);
+        int electionTerm = currentTerm;
+        System.out.println(id + ": Starting election for term " + electionTerm);
 
+        // The new term and the vote for itself must be durable before anyone else hears of them. Otherwise a crash
+        // and restart could let this server vote again in the same term, and two candidates could both win it.
+        replyWhenDurable(() -> {
+            if (state != RaftState.CANDIDATE || currentTerm != electionTerm) {
+                return;   // the election was overtaken while the vote was being written
+            }
+            requestVotes(electionTerm);
+        });
+    }
+
+    private void requestVotes(int electionTerm) {
         RequestVoteRequest request = new RequestVoteRequest(
-            currentTerm,
+            electionTerm,
             id,
             getLastLogIndex(),
             getLastLogTerm()
@@ -437,7 +596,7 @@ public class RaftServer extends Replica {
                 .whenComplete((responses, error) -> {
                     if (error != null) {
                         System.out.println(id + ": Election failed: " + error.getMessage());
-                    } else if (state == RaftState.CANDIDATE) {
+                    } else if (state == RaftState.CANDIDATE && currentTerm == electionTerm) {
                         becomeLeader();
                     }
                 });
@@ -448,8 +607,12 @@ public class RaftServer extends Replica {
     private void becomeFollower(int newTerm) {
         System.out.println(id + ": Becoming FOLLOWER for term " + newTerm);
         state = RaftState.FOLLOWER;
-        currentTerm = newTerm;
-        votedFor = null;
+        if (newTerm > currentTerm) {
+            // The vote belongs to its term, so it is cleared only when the term moves on.
+            currentTerm = newTerm;
+            votedFor = null;
+        }
+        recordHardStateIfChanged();
         currentLeader = null;
         heartbeatInterval.stop();
         resetElectionTimeout();
@@ -459,6 +622,7 @@ public class RaftServer extends Replica {
         System.out.println(id + ": Becoming CANDIDATE");
         state = RaftState.CANDIDATE;
         currentTerm++;
+        votedFor = null;
         currentLeader = null;
         heartbeatInterval.stop();
         resetElectionTimeout();
@@ -558,7 +722,8 @@ public class RaftServer extends Replica {
     }
 
     private int replicationCountFor(int index) {
-        int replicationCount = 1;
+        // The server's own log counts only as far as it is durable.
+        int replicationCount = durableLastIndex >= index ? 1 : 0;
         for (ProcessId peer : getAllNodes()) {
             if (!peer.equals(id) && matchIndex.getOrDefault(peer, 0) >= index) {
                 replicationCount++;
@@ -632,6 +797,19 @@ public class RaftServer extends Replica {
 
     public String getValue(String key) {
         return kvStore.get(key);
+    }
+
+    public ProcessId getVotedFor() {
+        return votedFor;
+    }
+
+    public int getLogSize() {
+        return log.size();
+    }
+
+    /** True while a record has been appended but is not yet durable, so no reply that depends on it has gone out. */
+    public boolean hasRecordsNotYetDurable() {
+        return durableRecords < appendedRecords;
     }
 
     public int getCommitIndex() {
