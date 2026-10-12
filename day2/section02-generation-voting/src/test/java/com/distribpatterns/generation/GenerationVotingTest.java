@@ -11,7 +11,6 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.util.List;
 
-import static com.tickloom.testkit.ClusterAssertions.assertEventually;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -138,7 +137,7 @@ public class GenerationVotingTest {
             assertFalse(future2.isCompleted(), "Second request should still be in flight before ticking");
             assertFalse(future3.isCompleted(), "Third request should still be in flight before ticking");
 
-            assertEventually(cluster, () ->
+            cluster.tickUntil(() ->
                 !future1.isPending() && !future2.isPending() && !future3.isPending()
             );
 
@@ -164,7 +163,7 @@ public class GenerationVotingTest {
     }
 
     private static void waitUntilAllNodesInitialised(Cluster cluster) {
-        assertEventually(cluster, () ->
+        cluster.tickUntil(() ->
                 cluster.<GenerationVotingServer>getNode(ATHENS).isInitialised()
                         && cluster.<GenerationVotingServer>getNode(BYZANTIUM).isInitialised()
                         && cluster.<GenerationVotingServer>getNode(CYRENE).isInitialised());

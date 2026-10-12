@@ -10,7 +10,6 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.util.List;
 
-import static com.tickloom.testkit.ClusterAssertions.assertEventually;
 import static org.junit.Assert.assertEquals;
 
 class TwoPhaseServerTest {
@@ -34,7 +33,7 @@ class TwoPhaseServerTest {
             var client = cluster.newClientConnectedTo(ALICE, ATHENS, TwoPhaseClient::new);
             TickCompletableFuture<ExecuteResponse> executeResponse =
                 client.execute(ATHENS, new IncrementCounterOperation("counter_key", 2));
-            assertEventually(cluster, () -> executeResponse.isCompleted() && !executeResponse.isFailed());
+            cluster.tickUntil(() -> executeResponse.isCompleted() && !executeResponse.isFailed());
 
             TwoPhaseServer athensServer = cluster.getNode(ATHENS);
             assertEquals(Integer.valueOf(2), athensServer.getCounterValue("counter_key"));

@@ -54,7 +54,7 @@ public class NetworkPartitionTest {
 
             // phase 1 — initial write via majority, cluster converges
             var initialSet = majorityClient.set(key, initialValue);
-            assertEventually(cluster, initialSet::isCompleted);
+            cluster.tickUntil(initialSet::isCompleted);
             assertTrue(initialSet.getResult().success(), "Initial write should succeed");
             assertReplicasEventuallyHaveValue(cluster, List.of(ATHENS, BYZANTIUM, CYRENE, DELPHI, SPARTA), key, initialValue);
 
@@ -65,19 +65,19 @@ public class NetworkPartitionTest {
 
             // phase 3 — minority write fails for client (no quorum) but persists locally
             var minorityWrite = minorityClient.set(key, minorityValue);
-            assertEventually(cluster, minorityWrite::isFailed);
+            cluster.tickUntil(minorityWrite::isFailed);
             assertReplicasEventuallyHaveValue(cluster, List.of(ATHENS, BYZANTIUM), key, minorityValue);
 
             // phase 4 — majority write succeeds in its partition
             var majorityWrite = majorityClient.set(key, majorityValue);
-            assertEventually(cluster, completesSuccessfully(majorityWrite));
+            cluster.tickUntil(completesSuccessfully(majorityWrite));
             assertReplicasEventuallyHaveValue(cluster, List.of(CYRENE, DELPHI, SPARTA), key, majorityValue);
 
             // phase 5 — heal and verify final value (majority value should win without skew)
             cluster.healAllPartitions();
 
             var healedRead = majorityClient.get(key);
-            assertEventually(cluster, healedRead::isCompleted);
+            cluster.tickUntil(healedRead::isCompleted);
             assertTrue(healedRead.getResult().found(), "Data should be retrievable after healing");
             assertArrayEquals(majorityValue, healedRead.getResult().value(), "Majority value should persist after heal");
         }
@@ -103,7 +103,7 @@ public class NetworkPartitionTest {
             // Step 1: initialize value via quorum so all nodes converge to v0
             history.invoke(ProcessId.of("client1"), Op.WRITE, v0);
             var init = clientWriter.set(key.getBytes(), v0.getBytes());
-            assertEventually(cluster, init::isCompleted);
+            cluster.tickUntil(init::isCompleted);
             assertTrue(init.getResult().success());
             history.ok(ProcessId.of("client1"), Op.WRITE, v0);
 
@@ -115,7 +115,7 @@ public class NetworkPartitionTest {
             // Step 3: quorum write v1 on writer side
             history.invoke(ProcessId.of("client1"), Op.WRITE, v1);
             var w1 = clientWriter.set(key.getBytes(), v1.getBytes());
-            assertEventually(cluster, completesSuccessfully(w1));
+            cluster.tickUntil(completesSuccessfully(w1));
             history.ok(ProcessId.of("client1"), Op.WRITE, v1);
 
             // Step 4: different client performs local read on ATHENS (single-node read), sees stale v0
@@ -210,7 +210,7 @@ public class NetworkPartitionTest {
             // Step 3: minority write times out at client but persists locally in its partition
             history.invoke(ProcessId.of("minority_client"), Op.WRITE, minorityValue);
             var minorityWrite = minorityClient.set(key.getBytes(), minorityValue.getBytes());
-            assertEventually(cluster, minorityWrite::isFailed);
+            cluster.tickUntil(minorityWrite::isFailed);
             assertReplicasEventuallyHaveValue(cluster, List.of(ATHENS, BYZANTIUM), key.getBytes(), minorityValue.getBytes());
             history.fail(ProcessId.of("minority_client"), Op.WRITE, minorityValue);
 
@@ -227,7 +227,7 @@ public class NetworkPartitionTest {
 
             history.invoke(ProcessId.of("minority_client"), Op.READ, null);
             var healedRead = minorityClient.get(key.getBytes());
-            assertEventually(cluster, healedRead::isCompleted);
+            cluster.tickUntil(healedRead::isCompleted);
             assertTrue(healedRead.getResult().found(), "Data should be retrievable after healing");
             assertArrayEquals(minorityValue.getBytes(), healedRead.getResult().value(),
                     "Minority value (higher timestamp) should win after heal with clock skew");

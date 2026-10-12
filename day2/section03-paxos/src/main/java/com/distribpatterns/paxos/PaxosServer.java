@@ -3,11 +3,15 @@ package com.distribpatterns.paxos;
 import com.distribpatterns.paxos.messages.*;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
+import com.tickloom.fs.FileIO;
+import com.tickloom.fs.OpenMode;
 import com.tickloom.Replica;
 import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.messaging.Message;
 import com.tickloom.messaging.MessageType;
 import com.tickloom.messaging.RequestCallback;
+import com.tickloom.wal.BatchedLog;
+import com.tickloom.wal.Wal;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -23,14 +27,21 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 
 public class PaxosServer extends Replica {
-    private static final String PAXOS_STATE_KEY = "paxos_state";
+    private static final String DECISION_LOG_FILE = "paxos.wal";
+    private static final int GROUP_WAIT_TICKS = 2;
     
     // State machine
     private final Map<String, Integer> counters = new HashMap<>();
     private final Map<String, String> kvStore = new HashMap<>();
     
-    // Paxos state (immutable, recreated on each update)
+    // Paxos state (immutable, recreated on each update). It is always the result of applying, in order, every
+    // decision in the log and the ones still being written.
     private PaxosState state = new PaxosState();
+
+    // Every promise, accept and commit is appended here, and the reply goes out only once it is durable.
+    private FileIO decisionFile;
+    private BatchedLog decisionLog;
+    private int decisionsNotYetDurable;
     
     // For generation number
     private final AtomicInteger generationCounter = new AtomicInteger(0);
@@ -43,20 +54,59 @@ public class PaxosServer extends Replica {
         // Initialization is handled by Process.initialise()
     }
 
+    /** The server is not running until its state is rebuilt from the decision log. */
     @Override
     protected TickCompletableFuture<?> onStart() {
-        // Load initial state using standardized method
-        return load(PAXOS_STATE_KEY, PaxosState.class).whenComplete((loadedState, error) -> {
+        if (decisionFile != null) {
+            decisionFile.close();   // a restart on the same instance: let go of the old handle
+        }
+        state = new PaxosState();
+        counters.clear();
+        kvStore.clear();
+        decisionLog = null;
+        decisionsNotYetDurable = 0;
+        return fileSystem.open(DECISION_LOG_FILE, OpenMode.OPEN_OR_CREATE)
+                // A new file's name is durable only after the directory is synced.
+                .thenCompose(opened -> fileSystem.syncDirectory().thenApply(ignored -> opened))
+                .thenCompose(opened -> {
+                    decisionFile = opened;
+                    Wal wal = new Wal(opened);
+                    return wal.recover().thenApply(entries -> {
+                        entries.forEach(entry -> replay(deserializePayload(entry.payload(), PaxosDecision.class)));
+                        // The state machine is not logged, so the one committed value is executed again.
+                        state.committedValue().ifPresent(this::executeOperation);
+                        decisionLog = new BatchedLog(wal, GROUP_WAIT_TICKS);
+                        return (Void) null;
+                    });
+                });
+    }
+
+    private void replay(PaxosDecision decision) {
+        state = decision.applyTo(state);
+    }
+
+    @Override
+    protected void onTick() {
+        if (decisionLog != null) {
+            decisionLog.tick();
+        }
+    }
+
+    /**
+     * Appends the decision to the log and runs {@code onDurable} once it is on disk. The in-memory state has already
+     * been updated by the caller, so the next message sees it; only the reply waits. Records become durable in the
+     * order they were appended, so a reply never goes out before an earlier decision it depends on is durable.
+     * If the append fails the log is unusable, so no reply is sent.
+     */
+    private void recordDecision(PaxosDecision decision, Runnable onDurable) {
+        decisionsNotYetDurable++;
+        decisionLog.append(serializePayload(decision)).whenComplete((offset, error) -> {
+            decisionsNotYetDurable--;
             if (error != null) {
-                System.err.println(id + ": Failed to load PaxosState: " + error.getMessage());
+                System.err.println(id + ": Failed to record " + decision + ": " + error.getMessage());
                 return;
             }
-
-            if (loadedState != null) {
-                state = loadedState;
-            } else {
-                state = new PaxosState();
-            }
+            onDurable.run();
         });
     }
 
@@ -258,7 +308,7 @@ public class PaxosServer extends Replica {
 
     private void promiseGeneration(Message message, int generation) {
         state = state.promise(generation);
-        persist(PAXOS_STATE_KEY, state, () -> {
+        recordDecision(PaxosDecision.promise(generation), () -> {
             PrepareResponse response = promiseResponse();
             System.out.println(id + ": PROMISED generation " + generation
                     + acceptedValueDescription());
@@ -308,7 +358,7 @@ public class PaxosServer extends Replica {
 
         if (state.canAccept(generation)) {
             state = state.accept(generation, value);
-            persist(PAXOS_STATE_KEY, state, () -> {
+            recordDecision(PaxosDecision.accept(generation, value), () -> {
                 System.out.println(id + ": ACCEPTED value " + value + " for generation " + generation);
                 send(createMessage(message.source(), message.correlationId(),
                         new ProposeResponse(true, generation), PaxosMessageTypes.PROPOSE_RESPONSE));
@@ -338,7 +388,7 @@ public class PaxosServer extends Replica {
         // Learning a chosen value must not lower the promise already made.
         // So commit records the chosen generation and value, while preserving the higher promise.
         state = state.commit(request.generation(), committedOperation);
-        persist(PAXOS_STATE_KEY, state, () -> {
+        recordDecision(PaxosDecision.commit(request.generation(), committedOperation), () -> {
             String result = executeCommittedOperation(committedOperation);
             respondToClientWithCommittedResult(request, committedOperation, result);
         });
@@ -391,6 +441,11 @@ public class PaxosServer extends Replica {
     }
 
     // ========== PUBLIC ACCESSORS FOR TESTING ==========
+
+    /** True while a decision has been applied to the state but is not yet durable, so no reply for it has gone out. */
+    public boolean hasDecisionsNotYetDurable() {
+        return decisionsNotYetDurable > 0;
+    }
 
     public PaxosState getPaxosState() {
         return state;

@@ -11,7 +11,6 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.util.List;
 import java.util.function.BooleanSupplier;
-import static com.tickloom.testkit.ClusterAssertions.assertEventually;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
@@ -46,10 +45,10 @@ public class NaiveReplicationServerTest {
 
             String COUNTER_KEY = "counterKey";
             TickCompletableFuture<IncrementCounterResponse> incrementResponse = client.increment(ATHENS, COUNTER_KEY, 2);
-            //assertEventually ticks only until response is received.
+            //tickUntil ticks only until response is received.
             // Because athens immediately sends the response and then sends the replication message to followers.
             // So it will require one more tick for followers to process the messages.
-            assertEventually(cluster, completesSuccessfully(incrementResponse));
+            cluster.tickUntil(completesSuccessfully(incrementResponse));
 
             NaiveReplicationServer athensServer = cluster.getNode(ATHENS);
             assertEquals(Integer.valueOf(2), athensServer.getContainerValue(COUNTER_KEY));

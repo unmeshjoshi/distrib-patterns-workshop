@@ -14,7 +14,6 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
-import static com.tickloom.testkit.ClusterAssertions.assertEventually;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -77,7 +76,7 @@ public class RecoveryAndCatchUpScenariosTest {
                 new SetValueOperation("before_operations", "value1")
             );
             
-            assertEventually(cluster, () -> future1.isCompleted() && !future1.isFailed());
+            cluster.tickUntil(() -> future1.isCompleted() && !future1.isFailed());
             
             // Verify all nodes have the value
             assertEquals("value1", athens.getValue("before_operations"));
@@ -95,8 +94,8 @@ public class RecoveryAndCatchUpScenariosTest {
                 new SetValueOperation("during_operations2", "value3")
             );
             
-            assertEventually(cluster, () -> future2.isCompleted() && !future2.isFailed());
-            assertEventually(cluster, () -> future3.isCompleted() && !future3.isFailed());
+            cluster.tickUntil(() -> future2.isCompleted() && !future2.isFailed());
+            cluster.tickUntil(() -> future3.isCompleted() && !future3.isFailed());
             
             // Verify all nodes have consistent state
             assertEquals("value1", athens.getValue("before_operations"));
@@ -170,7 +169,7 @@ public class RecoveryAndCatchUpScenariosTest {
                 new SetValueOperation("committed", "value1")
             );
             
-            assertEventually(cluster, () -> future1.isCompleted() && !future1.isFailed());
+            cluster.tickUntil(() -> future1.isCompleted() && !future1.isFailed());
             
             // Verify committed entry exists
             assertEquals("value1", athens.getValue("committed"));
@@ -213,7 +212,7 @@ public class RecoveryAndCatchUpScenariosTest {
             // ticks alone would make this test nondeterministic.
             getServer(cluster, followerIds.get(0)).startElection();
 
-            assertEventually(cluster, () -> followerIds.stream().anyMatch(id -> getServer(cluster, id).isLeader()));
+            cluster.tickUntil(() -> followerIds.stream().anyMatch(id -> getServer(cluster, id).isLeader()));
 
             MultiPaxosWithHeartbeatsServer newLeader = followerIds.stream()
                 .map(id -> getServer(cluster, id))
@@ -234,12 +233,12 @@ public class RecoveryAndCatchUpScenariosTest {
             assertEquals("value1", cyrene.getValue("committed"));
             
             // Recovery should complete the orphaned entry on the new majority.
-            assertEventually(cluster, () -> followerIds.stream()
+            cluster.tickUntil(() -> followerIds.stream()
                 .allMatch(id -> "value2".equals(getServer(cluster, id).getValue("needs_recovery"))));
 
             // Reconnect the old leader and verify it catches up too.
             cluster.reconnectProcess(initialLeaderId);
-            assertEventually(cluster, () -> "value2".equals(getServer(cluster, initialLeaderId).getValue("needs_recovery")));
+            cluster.tickUntil(() -> "value2".equals(getServer(cluster, initialLeaderId).getValue("needs_recovery")));
 
             // Verify new leader has higher or equal generation.
             assertTrue(newLeader.getPromisedGeneration() >= initialLeader.getPromisedGeneration(),
@@ -295,7 +294,7 @@ public class RecoveryAndCatchUpScenariosTest {
                 new SetValueOperation("before_partition", "value1")
             );
             
-            assertEventually(cluster, () -> future1.isCompleted() && !future1.isFailed());
+            cluster.tickUntil(() -> future1.isCompleted() && !future1.isFailed());
             
             // Verify all nodes have the value
             for (MultiPaxosWithHeartbeatsServer server : servers) {
@@ -322,7 +321,7 @@ public class RecoveryAndCatchUpScenariosTest {
                 new SetValueOperation("during_partition", "value2")
             );
             
-            assertEventually(cluster, () -> future2.isCompleted() && !future2.isFailed());
+            cluster.tickUntil(() -> future2.isCompleted() && !future2.isFailed());
             
             // Verify current leader has the new value
             assertEquals("value2", currentLeader.getValue("during_partition"));
@@ -392,7 +391,7 @@ public class RecoveryAndCatchUpScenariosTest {
                 new SetValueOperation("restart_test", "value1")
             );
             
-            assertEventually(cluster, () -> future1.isCompleted() && !future1.isFailed());
+            cluster.tickUntil(() -> future1.isCompleted() && !future1.isFailed());
             
             // Verify all nodes have the value
             assertEquals("value1", athens.getValue("restart_test"));
@@ -467,7 +466,7 @@ public class RecoveryAndCatchUpScenariosTest {
             // Wait for all operations to complete
             for (int i = 0; i < 3; i++) {
                 final int index = i;
-                assertEventually(cluster, () -> futures[index].isCompleted() && !futures[index].isFailed());
+                cluster.tickUntil(() -> futures[index].isCompleted() && !futures[index].isFailed());
             }
             
             // Verify all nodes have consistent logs
@@ -561,9 +560,9 @@ public class RecoveryAndCatchUpScenariosTest {
             );
             
             // Wait for operations to complete
-            assertEventually(cluster, () -> future1.isCompleted() && !future1.isFailed());
-            assertEventually(cluster, () -> future2.isCompleted() && !future2.isFailed());
-            assertEventually(cluster, () -> future3.isCompleted() && !future3.isFailed());
+            cluster.tickUntil(() -> future1.isCompleted() && !future1.isFailed());
+            cluster.tickUntil(() -> future2.isCompleted() && !future2.isFailed());
+            cluster.tickUntil(() -> future3.isCompleted() && !future3.isFailed());
             
             // Verify state machine is consistent
             assertEquals("recovery_value1_updated", athens.getValue("recovery_key1"));
@@ -642,7 +641,7 @@ public class RecoveryAndCatchUpScenariosTest {
                     new SetValueOperation("cycle_" + cycle, "value_" + cycle)
                 );
                 
-                assertEventually(cluster, () -> future.isCompleted() && !future.isFailed());
+                cluster.tickUntil(() -> future.isCompleted() && !future.isFailed());
                 
                 // Verify all nodes have the value
                 for (MultiPaxosWithHeartbeatsServer server : servers) {

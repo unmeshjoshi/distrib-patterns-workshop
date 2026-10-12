@@ -14,7 +14,6 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
-import static com.tickloom.testkit.ClusterAssertions.assertEventually;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -89,9 +88,9 @@ public class LogConsistencyAndSafetyTest {
             );
             
             // Wait for operations to complete
-            assertEventually(cluster, () -> future1.isCompleted() && !future1.isFailed());
-            assertEventually(cluster, () -> future2.isCompleted() && !future2.isFailed());
-            assertEventually(cluster, () -> future3.isCompleted() && !future3.isFailed());
+            cluster.tickUntil(() -> future1.isCompleted() && !future1.isFailed());
+            cluster.tickUntil(() -> future2.isCompleted() && !future2.isFailed());
+            cluster.tickUntil(() -> future3.isCompleted() && !future3.isFailed());
             
             // Verify all servers have same log entries
             Map<Integer, PaxosState> athensLog = athens.getPaxosLog();
@@ -177,8 +176,8 @@ public class LogConsistencyAndSafetyTest {
             );
             
             // Wait for operations to complete
-            assertEventually(cluster, () -> future1.isCompleted() && !future1.isFailed());
-            assertEventually(cluster, () -> future2.isCompleted() && !future2.isFailed());
+            cluster.tickUntil(() -> future1.isCompleted() && !future1.isFailed());
+            cluster.tickUntil(() -> future2.isCompleted() && !future2.isFailed());
             
             // Verify committed entries exist
             assertEquals("value1", athens.getValue("persistent"));
@@ -264,8 +263,8 @@ public class LogConsistencyAndSafetyTest {
             );
             
             // Wait for operations to complete
-            assertEventually(cluster, () -> future1.isCompleted() && !future1.isFailed());
-            assertEventually(cluster, () -> future2.isCompleted() && !future2.isFailed());
+            cluster.tickUntil(() -> future1.isCompleted() && !future1.isFailed());
+            cluster.tickUntil(() -> future2.isCompleted() && !future2.isFailed());
             
             // Verify all servers have same final state
             String athensValue = athens.getValue("conflict_key");
@@ -415,8 +414,8 @@ public class LogConsistencyAndSafetyTest {
             );
             
             // Wait for operations to complete
-            assertEventually(cluster, () -> future1.isCompleted() && !future1.isFailed());
-            assertEventually(cluster, () -> future2.isCompleted() && !future2.isFailed());
+            cluster.tickUntil(() -> future1.isCompleted() && !future1.isFailed());
+            cluster.tickUntil(() -> future2.isCompleted() && !future2.isFailed());
             
             // Verify log entries were appended (not overwritten)
             Map<Integer, PaxosState> leaderLog = leader.getPaxosLog();
@@ -492,7 +491,7 @@ public class LogConsistencyAndSafetyTest {
             // Wait for all operations to complete
             for (int i = 0; i < 5; i++) {
                 final int index = i;
-                assertEventually(cluster, () -> futures[index].isCompleted() && !futures[index].isFailed());
+                cluster.tickUntil(() -> futures[index].isCompleted() && !futures[index].isFailed());
             }
             
             // Verify all servers have consistent state
@@ -575,12 +574,12 @@ public class LogConsistencyAndSafetyTest {
                 new SetValueOperation("read_test", "read_value")
             );
             
-            assertEventually(cluster, () -> setFuture.isCompleted() && !setFuture.isFailed());
+            cluster.tickUntil(() -> setFuture.isCompleted() && !setFuture.isFailed());
             
             // Now perform a read operation (should trigger no-op commit)
             TickCompletableFuture<GetValueResponse> readFuture = client.getValue(ATHENS, "read_test");
             
-            assertEventually(cluster, () -> readFuture.isCompleted() && !readFuture.isFailed());
+            cluster.tickUntil(() -> readFuture.isCompleted() && !readFuture.isFailed());
             
             GetValueResponse readResponse = readFuture.getResult();
             assertNotNull(readResponse, "Read response should not be null");

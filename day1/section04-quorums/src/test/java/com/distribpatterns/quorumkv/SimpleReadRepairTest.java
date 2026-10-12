@@ -12,7 +12,6 @@ import java.util.List;
 
 import static com.distribpatterns.quorumkv.QuorumTestSupport.assertReplicasEventuallyHaveValue;
 import static com.distribpatterns.quorumkv.QuorumTestSupport.storedValue;
-import static com.tickloom.testkit.ClusterAssertions.assertEventually;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -45,7 +44,7 @@ public class SimpleReadRepairTest {
             // Write initial value
             System.out.println("=== Writing initial value ===");
             var write1 = client.set(key, value1);
-            assertEventually(cluster, write1::isCompleted);
+            cluster.tickUntil(write1::isCompleted);
             assertTrue(write1.getResult().success());
             
             // Verify all nodes have it
@@ -63,7 +62,7 @@ public class SimpleReadRepairTest {
             byte[] value2 = "v2".getBytes();
             System.out.println("=== Writing v2 to majority ===");
             var write2 = client.set(key, value2);
-            assertEventually(cluster, write2::isCompleted);
+            cluster.tickUntil(write2::isCompleted);
             assertTrue(write2.getResult().success());
             
             // Check CYRENE still has v1
@@ -79,7 +78,7 @@ public class SimpleReadRepairTest {
             // Do read which should trigger repair
             System.out.println("=== Performing read (should trigger repair) ===");
             var read = client.get(key);
-            assertEventually(cluster, read::isCompleted);
+            cluster.tickUntil(read::isCompleted);
             assertArrayEquals(value2, read.getResult().value());
             System.out.println("Read returned v2");
 

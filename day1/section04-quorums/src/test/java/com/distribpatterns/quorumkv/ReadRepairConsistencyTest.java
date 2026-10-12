@@ -16,7 +16,6 @@ import java.io.IOException;
 import java.util.List;
 
 import static com.distribpatterns.quorumkv.QuorumTestSupport.storedValue;
-import static com.tickloom.testkit.ClusterAssertions.assertEventually;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -73,7 +72,7 @@ public class ReadRepairConsistencyTest {
             history.invoke(ALICE, Op.WRITE, v0);
 
             var write1 = alice.set(key.getBytes(), v0.getBytes());
-            assertEventually(cluster, write1::isCompleted);
+            cluster.tickUntil(write1::isCompleted);
             assertTrue(write1.getResult().success());
 
             history.ok(ALICE, Op.WRITE, v0);
@@ -88,7 +87,7 @@ public class ReadRepairConsistencyTest {
             history.invoke(ALICE, Op.WRITE, v1);
 
             var write2 = alice.set(key.getBytes(), v1.getBytes());
-            assertEventually(cluster, write2::isCompleted);
+            cluster.tickUntil(write2::isCompleted);
             assertTrue(write2.getResult().success());
 
             history.ok(ALICE, Op.WRITE, v1);
@@ -100,14 +99,14 @@ public class ReadRepairConsistencyTest {
             history.invoke(ALICE, Op.READ, null);
 
             var read = alice.get(key.getBytes());
-            assertEventually(cluster, read::isCompleted);
+            cluster.tickUntil(read::isCompleted);
             assertTrue(read.getResult().found());
             assertArrayEquals(v1.getBytes(), read.getResult().value());
 
             history.ok(ALICE, Op.READ, new String(read.getResult().value()));
 
             // Step 6: Wait for sync read repair to complete
-            assertEventually(cluster, () -> {
+            cluster.tickUntil(() -> {
                 var valueC = storedValue(cluster, CYRENE, key.getBytes());
                 return valueC != null && java.util.Arrays.equals(v1.getBytes(), valueC.value());
             });
@@ -115,7 +114,7 @@ public class ReadRepairConsistencyTest {
             // Step 7: Another read should still see v1
             history.invoke(ALICE, Op.READ, null);
             var read2 = alice.get(key.getBytes());
-            assertEventually(cluster, read2::isCompleted);
+            cluster.tickUntil(read2::isCompleted);
             assertArrayEquals(v1.getBytes(), read2.getResult().value());
             history.ok(ALICE, Op.READ, new String(read2.getResult().value()));
 

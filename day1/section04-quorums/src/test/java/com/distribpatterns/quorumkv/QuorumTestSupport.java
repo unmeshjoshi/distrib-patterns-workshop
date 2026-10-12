@@ -9,7 +9,6 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 
-import static com.tickloom.testkit.ClusterAssertions.assertEventually;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -35,7 +34,7 @@ final class QuorumTestSupport {
 
     static void assertWriteFails(Cluster cluster, QuorumKVClient client, byte[] key, byte[] value) {
         var future = client.set(key, value);
-        assertEventually(cluster, future::isFailed);
+        cluster.tickUntil(future::isFailed);
     }
 
     static void assertReadReturns(Cluster cluster, QuorumKVClient client, byte[] key, byte[] expectedValue) {

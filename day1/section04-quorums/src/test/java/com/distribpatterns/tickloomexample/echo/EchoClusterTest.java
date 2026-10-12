@@ -6,7 +6,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import static com.tickloom.testkit.ClusterAssertions.assertEventually;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class EchoClusterTest {
@@ -30,7 +29,7 @@ public class EchoClusterTest {
         EchoClient client = cluster.newClient(ProcessId.of("client-1"), EchoClient::new);
 
         var future = client.echo(serverId, "hello");
-        assertEventually(cluster, () -> future.isCompleted());
+        cluster.tickUntil(() -> future.isCompleted());
 
         assertEquals("hello", future.getResult().text());
     }

@@ -5,7 +5,6 @@ import com.distribpatterns.twophase.TwoPhaseClient
 import com.distribpatterns.twophase.messages.ExecuteResponse
 import com.tickloom.ProcessId
 import com.tickloom.testkit.Cluster
-import com.tickloom.testkit.ClusterAssertions.assertEventually
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
@@ -37,7 +36,7 @@ class TwoPhaseServerExampleTest {
 
                 val executeResponse = client.execute(ATHENS, IncrementCounterOperation("counter_key", 2))
                 
-                assertEventually(cluster) { executeResponse.isCompleted && !executeResponse.isFailed }
+                cluster.tickUntil { executeResponse.isCompleted && !executeResponse.isFailed }
 
                 val athensServer = cluster.getNode<TwoPhaseServerExample>(ATHENS)
                 assertEquals(2, athensServer.getCounterValue("counter_key"))

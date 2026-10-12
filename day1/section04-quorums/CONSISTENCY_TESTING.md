@@ -27,7 +27,7 @@ history.invoke(ALICE, Op.WRITE, "Microservices");
 
 // 3. Perform the operation
 var write = client.set(key.getBytes(), "Microservices".getBytes());
-assertEventually(cluster, write::isCompleted);
+cluster.tickUntil(write::isCompleted);
 
 // 4. After success - record ok
 history.ok(ALICE, Op.WRITE, "Microservices");
@@ -35,7 +35,7 @@ history.ok(ALICE, Op.WRITE, "Microservices");
 // For reads, record the value that was read
 history.invoke(ALICE, Op.READ, null);
 var read = client.get(key.getBytes());
-assertEventually(cluster, read::isCompleted);
+cluster.tickUntil(read::isCompleted);
 history.ok(ALICE, Op.READ, new String(read.getResult().value()));
 
 // 5. Export to EDN format
@@ -202,7 +202,7 @@ Example for failed operation:
 ```java
 history.invoke(ALICE, Op.WRITE, "value");
 var write = client.set(key.getBytes(), "value".getBytes());
-assertEventually(cluster, write::isFailed);
+cluster.tickUntil(write::isFailed);
 history.fail(ALICE, Op.WRITE, "value");  // Record failure
 ```
 
