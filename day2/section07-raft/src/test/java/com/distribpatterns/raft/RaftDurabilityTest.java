@@ -116,7 +116,7 @@ public class RaftDurabilityTest {
             int termBefore = server(cluster, follower).getCurrentTerm();
             ProcessId voteBefore = server(cluster, follower).getVotedFor();
             int logSizeBefore = server(cluster, follower).getLogSize();
-            assertEquals(2, logSizeBefore, "the placeholder at index 0 and the one entry");
+            assertEquals(3, logSizeBefore, "the placeholder at index 0, the leader's no-op and the one entry");
 
             crashAndRestart(cluster, follower);
 

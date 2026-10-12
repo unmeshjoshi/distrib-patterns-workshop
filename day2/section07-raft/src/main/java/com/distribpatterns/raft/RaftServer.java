@@ -638,6 +638,13 @@ public class RaftServer extends Replica {
             matchIndex.put(peer, 0);
         }
 
+        // A leader commits only entries of its own term (§5.4.2), so entries left over from earlier terms would wait
+        // for the next client write. A no-op in the new term lets them commit as soon as it does (§8).
+        // This runs in the same call that makes the server leader, and a server handles one message at a time, so
+        // the no-op is always the first entry of the term: it gets the first index, and its log record is queued
+        // before the record of any client entry. The leader does not wait for it to commit before taking client requests.
+        appendLogEntry(new NoOpOperation(), null);
+
         electionTimeout.stop();
         startHeartbeatInterval();
         sendHeartbeats();
