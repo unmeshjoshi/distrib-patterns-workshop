@@ -1,11 +1,1 @@
-configurations.all {
-    resolutionStrategy {
-        force 'io.github.unmeshjoshi:tickloom:0.1.0-alpha.30'
-        force 'io.github.unmeshjoshi:tickloom-testkit:0.1.0-alpha.30'
-    }
-}
-
-dependencies {
-    // Project dependency on the WAL module
-    implementation project(':day1:section03-wal')
-}
+// No additional dependencies needed - inherits from root build.gradle

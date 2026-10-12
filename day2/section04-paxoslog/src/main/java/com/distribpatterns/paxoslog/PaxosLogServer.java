@@ -4,9 +4,14 @@ import com.distribpatterns.paxoslog.messages.*;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
+import com.tickloom.fs.FileIO;
+import com.tickloom.fs.OpenMode;
+import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.messaging.Message;
 import com.tickloom.messaging.MessageType;
 import com.tickloom.messaging.RequestCallback;
+import com.tickloom.wal.BatchedLog;
+import com.tickloom.wal.Wal;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -19,10 +24,23 @@ import java.util.concurrent.atomic.AtomicInteger;
  * - Sequential execution: entries must be committed in order (no gaps)
  * - Automatic conflict resolution: retry at next index if value rejected
  * - State machine: applies commands (SetValue, CompareAndSwap) to KV store
+ * - Durability: every promise, accept and commit, for every index, goes into one write-ahead log. A reply goes out
+ *   only once its record is durable, and a restart rebuilds the log by replaying it.
  */
 public class PaxosLogServer extends Replica {
-    // In-memory cache: one PaxosState per log index
+    private static final String DECISION_LOG_FILE = "paxoslog.wal";
+    private static final int GROUP_WAIT_TICKS = 2;
+
+    // In-memory cache: one PaxosState per log index. It is always the result of applying, in order, every
+    // decision in the write-ahead log and the ones still being written.
     private final Map<Integer, PaxosState> paxosLogCache = new TreeMap<>();
+
+    // Indexes whose commit record is durable. Only these are executed, so the state machine never runs ahead of the log.
+    private final Set<Integer> durablyCommitted = new HashSet<>();
+
+    private FileIO decisionFile;
+    private BatchedLog decisionLog;
+    private int decisionsNotYetDurable;
 
     // State machine: key-value store
     private final Map<String, String> kvStore = new HashMap<>();
@@ -38,6 +56,67 @@ public class PaxosLogServer extends Replica {
 
     public PaxosLogServer(List<ProcessId> allNodes, ProcessParams processParams) {
         super(allNodes, processParams);
+    }
+
+    /** The server is not running until its log is rebuilt from the write-ahead log and the committed entries executed. */
+    @Override
+    protected TickCompletableFuture<?> onStart() {
+        if (decisionFile != null) {
+            decisionFile.close();   // a restart on the same instance: let go of the old handle
+        }
+        paxosLogCache.clear();
+        durablyCommitted.clear();
+        kvStore.clear();
+        highWaterMark = -1;
+        decisionLog = null;
+        decisionsNotYetDurable = 0;
+        return fileSystem.open(DECISION_LOG_FILE, OpenMode.OPEN_OR_CREATE)
+                // A new file's name is durable only after the directory is synced.
+                .thenCompose(opened -> fileSystem.syncDirectory().thenApply(ignored -> opened))
+                .thenCompose(opened -> {
+                    decisionFile = opened;
+                    Wal wal = new Wal(opened);
+                    return wal.recover().thenApply(entries -> {
+                        entries.forEach(entry ->
+                                deserializePayload(entry.payload(), PaxosLogDecision.class).applyTo(paxosLogCache));
+                        paxosLogCache.forEach((index, state) -> {
+                            if (state.committedValue().isPresent()) {
+                                durablyCommitted.add(index);
+                            }
+                        });
+                        // The state machine is not logged, so the committed entries are executed again.
+                        tryExecuteLogEntries();
+                        // Generations this node proposes must beat every promise it has already made.
+                        paxosLogCache.values().forEach(state ->
+                                generationCounter.accumulateAndGet(state.promisedGeneration(), Math::max));
+                        decisionLog = new BatchedLog(wal, GROUP_WAIT_TICKS);
+                        return (Void) null;
+                    });
+                });
+    }
+
+    @Override
+    protected void onTick() {
+        if (decisionLog != null) {
+            decisionLog.tick();
+        }
+    }
+
+    /**
+     * Appends the decision to the log and runs {@code onDurable} once it is on disk. The in-memory state has already
+     * been updated by the caller, so the next message sees it; only the reply waits. Records become durable in the
+     * order they were appended, whatever their index. If the append fails the log is unusable, so no reply is sent.
+     */
+    private void recordDecision(PaxosLogDecision decision, Runnable onDurable) {
+        decisionsNotYetDurable++;
+        decisionLog.append(serializePayload(decision)).whenComplete((offset, error) -> {
+            decisionsNotYetDurable--;
+            if (error != null) {
+                System.err.println(id + ": Failed to record " + decision + ": " + error.getMessage());
+                return;
+            }
+            onDurable.run();
+        });
     }
 
     @Override
@@ -266,12 +345,13 @@ public class PaxosLogServer extends Replica {
                              int generation,
                              Operation value,
                              PaxosState paxosState) {
-        var newState = paxosState.commit(generation, value);
-        paxosLogCache.put(logIndex, newState);
-
-        System.out.println(id + ": COMMITTED index " + logIndex);
-        tryExecuteLogEntries();
-        sendCommitResponse(message, true);
+        paxosLogCache.put(logIndex, paxosState.commit(generation, value));
+        recordDecision(PaxosLogDecision.commit(logIndex, generation, value), () -> {
+            System.out.println(id + ": COMMITTED index " + logIndex);
+            durablyCommitted.add(logIndex);
+            tryExecuteLogEntries();
+            sendCommitResponse(message, true);
+        });
     }
 
     private void rejectCommit(Message message, int logIndex) {
@@ -327,9 +407,10 @@ public class PaxosLogServer extends Replica {
     private void promiseGeneration(Message message, int logIndex, int generation, PaxosState paxosState) {
         var newState = paxosState.promise(generation);
         paxosLogCache.put(logIndex, newState);
-
-        System.out.println(id + ": PROMISED generation " + generation + " for index " + logIndex);
-        sendPrepareResponse(message, prepareResponse(true, newState));
+        recordDecision(PaxosLogDecision.promise(logIndex, generation), () -> {
+            System.out.println(id + ": PROMISED generation " + generation + " for index " + logIndex);
+            sendPrepareResponse(message, prepareResponse(true, newState));
+        });
     }
 
     private void rejectPrepareRequest(Message message, int logIndex, int generation, PaxosState paxosState) {
@@ -382,11 +463,11 @@ public class PaxosLogServer extends Replica {
                                 int generation,
                                 Operation value,
                                 PaxosState paxosState) {
-        var newState = paxosState.accept(generation, value);
-        paxosLogCache.put(logIndex, newState);
-
-        System.out.println(id + ": ACCEPTED proposal for index " + logIndex);
-        sendProposeResponse(message, new ProposeResponse(logIndex, true));
+        paxosLogCache.put(logIndex, paxosState.accept(generation, value));
+        recordDecision(PaxosLogDecision.accept(logIndex, generation, value), () -> {
+            System.out.println(id + ": ACCEPTED proposal for index " + logIndex);
+            sendProposeResponse(message, new ProposeResponse(logIndex, true));
+        });
     }
 
     private void rejectProposal(Message message, int logIndex) {
@@ -442,8 +523,8 @@ public class PaxosLogServer extends Replica {
         // Execute all consecutive committed entries starting from highWaterMark + 1
         for (int index = highWaterMark + 1; ; index++) {
             PaxosState state = paxosLogCache.get(index);
-            if (state == null || state.committedValue().isEmpty()) {
-                // Gap found or no more entries
+            if (state == null || state.committedValue().isEmpty() || !durablyCommitted.contains(index)) {
+                // Gap found, no more entries, or the commit is not durable yet
                 break;
             }
             
@@ -507,6 +588,11 @@ public class PaxosLogServer extends Replica {
         return kvStore.get(key);
     }
     
+    /** True while a decision has been applied to the log but is not yet durable, so no reply for it has gone out. */
+    public boolean hasDecisionsNotYetDurable() {
+        return decisionsNotYetDurable > 0;
+    }
+
     public int getHighWaterMark() {
         return highWaterMark;
     }

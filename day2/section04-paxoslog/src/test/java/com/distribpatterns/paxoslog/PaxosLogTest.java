@@ -225,12 +225,19 @@ public class PaxosLogTest {
     }
 
     private static void assertValueOnAllReplicas(Cluster cluster, String key, String expectedValue) {
+        // A replica executes an entry only once its commit record is durable, which can be after the client's reply.
+        cluster.tickUntil(() -> expectedValue.equals(getServer(cluster, ATHENS).getValue(key))
+                && expectedValue.equals(getServer(cluster, BYZANTIUM).getValue(key))
+                && expectedValue.equals(getServer(cluster, CYRENE).getValue(key)));
         assertEquals(expectedValue, getServer(cluster, ATHENS).getValue(key));
         assertEquals(expectedValue, getServer(cluster, BYZANTIUM).getValue(key));
         assertEquals(expectedValue, getServer(cluster, CYRENE).getValue(key));
     }
 
     private static void assertHighWaterMarkOnAllReplicas(Cluster cluster, int expectedHighWaterMark) {
+        cluster.tickUntil(() -> getServer(cluster, ATHENS).getHighWaterMark() == expectedHighWaterMark
+                && getServer(cluster, BYZANTIUM).getHighWaterMark() == expectedHighWaterMark
+                && getServer(cluster, CYRENE).getHighWaterMark() == expectedHighWaterMark);
         assertEquals(expectedHighWaterMark, getServer(cluster, ATHENS).getHighWaterMark());
         assertEquals(expectedHighWaterMark, getServer(cluster, BYZANTIUM).getHighWaterMark());
         assertEquals(expectedHighWaterMark, getServer(cluster, CYRENE).getHighWaterMark());

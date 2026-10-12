@@ -4,15 +4,22 @@ import com.distribpatterns.multipaxosheartbeats.messages.*;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
+import com.tickloom.fs.FileIO;
+import com.tickloom.fs.OpenMode;
+import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.messaging.Message;
 import com.tickloom.messaging.MessageType;
 import com.tickloom.messaging.RequestCallback;
 import com.tickloom.util.Timeout;
+import com.tickloom.wal.BatchedLog;
+import com.tickloom.wal.Wal;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
@@ -24,16 +31,30 @@ import java.util.stream.Collectors;
  * 2. Leaders send heartbeats on every tick to maintain leadership.
  * 3. Followers step down when they see a higher generation.
  * 4. A newly elected leader completes any uncommitted log entries.
+ *
+ * Durability: the promise made to a candidate and every accept and commit go into one write-ahead log, and a reply
+ * goes out only once its record is durable. A restart replays the log. Following a leader's heartbeat also raises
+ * {@code promisedGeneration}, but that is not logged: the leader got its quorum of durable promises when it was
+ * elected, so forgetting a generation learned only from a heartbeat cannot let an older leader win.
  */
 public class MultiPaxosWithHeartbeatsServer extends Replica {
     private static final NoOpOperation NO_OP = new NoOpOperation();
     private static final long BASE_ELECTION_TIMEOUT_TICKS = 100;
     private static final long ELECTION_TIMEOUT_STEP_TICKS = 25;
+    private static final String DECISION_LOG_FILE = "multipaxos-heartbeats.wal";
+    private static final int GROUP_WAIT_TICKS = 2;
 
     private ServerRole role = ServerRole.LookingForLeader;
     private int promisedGeneration = 0;
 
     private final Map<Integer, PaxosState> paxosLog = new HashMap<>();
+
+    // Indexes whose commit record is durable. Only these are executed, so the state machine never runs ahead of the log.
+    private final Set<Integer> durablyCommitted = new HashSet<>();
+
+    private FileIO decisionFile;
+    private BatchedLog decisionLog;
+    private int decisionsNotYetDurable;
     private final Map<String, String> kvStore = new HashMap<>();
 
     private int highWaterMark = -1;
@@ -47,6 +68,71 @@ public class MultiPaxosWithHeartbeatsServer extends Replica {
         super(peerIds, processParams);
         configureElectionTimeout();
         becomeFollower(promisedGeneration);
+    }
+
+    /** The server is not running until its promise and log are rebuilt from the write-ahead log. */
+    @Override
+    protected TickCompletableFuture<?> onStart() {
+        if (decisionFile != null) {
+            decisionFile.close();   // a restart on the same instance: let go of the old handle
+        }
+        promisedGeneration = 0;
+        paxosLog.clear();
+        durablyCommitted.clear();
+        kvStore.clear();
+        highWaterMark = -1;
+        decisionLog = null;
+        decisionsNotYetDurable = 0;
+        return fileSystem.open(DECISION_LOG_FILE, OpenMode.OPEN_OR_CREATE)
+                // A new file's name is durable only after the directory is synced.
+                .thenCompose(opened -> fileSystem.syncDirectory().thenApply(ignored -> opened))
+                .thenCompose(opened -> {
+                    decisionFile = opened;
+                    Wal wal = new Wal(opened);
+                    return wal.recover().thenApply(entries -> {
+                        entries.forEach(entry -> replay(deserializePayload(entry.payload(), MultiPaxosDecision.class)));
+                        // The state machine is not logged, so the committed entries are executed again.
+                        tryExecuteLogEntries();
+                        paxosLog.keySet().forEach(index -> logIndex.accumulateAndGet(index + 1, Math::max));
+                        // A restarted node is a follower until it hears from a leader or its election timeout fires.
+                        becomeFollower(promisedGeneration);
+                        decisionLog = new BatchedLog(wal, GROUP_WAIT_TICKS);
+                        return (Void) null;
+                    });
+                });
+    }
+
+    private void replay(MultiPaxosDecision decision) {
+        switch (decision.kind()) {
+            case PROMISE -> promisedGeneration = decision.generation();
+            case ACCEPT -> {
+                promisedGeneration = decision.generation();
+                paxosLog.put(decision.logIndex(), getOrCreatePaxosState(decision.logIndex())
+                        .accept(decision.generation(), decision.value()));
+            }
+            case COMMIT -> {
+                paxosLog.put(decision.logIndex(), getOrCreatePaxosState(decision.logIndex())
+                        .commit(decision.generation(), decision.value()));
+                durablyCommitted.add(decision.logIndex());
+            }
+        }
+    }
+
+    /**
+     * Appends the decision to the log and runs {@code onDurable} once it is on disk. The in-memory state has already
+     * been updated by the caller, so the next message sees it; only the reply waits. Records become durable in the
+     * order they were appended. If the append fails the log is unusable, so no reply is sent.
+     */
+    private void recordDecision(MultiPaxosDecision decision, Runnable onDurable) {
+        decisionsNotYetDurable++;
+        decisionLog.append(serializePayload(decision)).whenComplete((offset, error) -> {
+            decisionsNotYetDurable--;
+            if (error != null) {
+                System.err.println(id + ": Failed to record " + decision + ": " + error.getMessage());
+                return;
+            }
+            onDurable.run();
+        });
     }
 
     @Override
@@ -333,10 +419,11 @@ public class MultiPaxosWithHeartbeatsServer extends Replica {
         promisedGeneration = generation;
         generationCounter.updateAndGet(current -> Math.max(current, generation));
         var paxosState = getOrCreatePaxosState(logIndex);
-        var newState = paxosState.accept(generation, value);
-        paxosLog.put(logIndex, newState);
-        System.out.println(id + ": ACCEPTED proposal for index " + logIndex);
-        sendProposeResponse(message, logIndex, true);
+        paxosLog.put(logIndex, paxosState.accept(generation, value));
+        recordDecision(MultiPaxosDecision.accept(logIndex, generation, value), () -> {
+            System.out.println(id + ": ACCEPTED proposal for index " + logIndex);
+            sendProposeResponse(message, logIndex, true);
+        });
     }
 
     private void rejectProposal(Message message, int logIndex, int generation) {
@@ -373,12 +460,13 @@ public class MultiPaxosWithHeartbeatsServer extends Replica {
 
     private void commitValue(Message message, int logIndex, int generation, Operation value) {
         var paxosState = getOrCreatePaxosState(logIndex);
-        var newState = paxosState.commit(generation, value);
-        paxosLog.put(logIndex, newState);
-
-        System.out.println(id + ": COMMITTED index " + logIndex);
-        tryExecuteLogEntries();
-        sendCommitResponse(message, true);
+        paxosLog.put(logIndex, paxosState.commit(generation, value));
+        recordDecision(MultiPaxosDecision.commit(logIndex, generation, value), () -> {
+            System.out.println(id + ": COMMITTED index " + logIndex);
+            durablyCommitted.add(logIndex);
+            tryExecuteLogEntries();
+            sendCommitResponse(message, true);
+        });
     }
 
     private void sendCommitResponse(Message requestMessage, boolean success) {
@@ -417,7 +505,8 @@ public class MultiPaxosWithHeartbeatsServer extends Replica {
             uncommitted.size() + " uncommitted entries");
 
         becomeFollower(generation);
-        sendFullLogPrepareResponse(message, FullLogPrepareResponse.accepted(uncommitted));
+        recordDecision(MultiPaxosDecision.promise(generation), () ->
+                sendFullLogPrepareResponse(message, FullLogPrepareResponse.accepted(uncommitted)));
     }
 
     private void rejectLeadershipGeneration(Message message, int generation) {
@@ -499,6 +588,10 @@ public class MultiPaxosWithHeartbeatsServer extends Replica {
 
     @Override
     public void onTick() {
+        if (decisionLog == null) {
+            return;   // still recovering
+        }
+        decisionLog.tick();
         leaderHeartbeatTimeout.tick();
 
         if (role == ServerRole.Leader) {
@@ -617,7 +710,7 @@ public class MultiPaxosWithHeartbeatsServer extends Replica {
     private void tryExecuteLogEntries() {
         for (int index = highWaterMark + 1; ; index++) {
             PaxosState state = paxosLog.get(index);
-            if (state == null || state.committedValue().isEmpty()) {
+            if (state == null || state.committedValue().isEmpty() || !durablyCommitted.contains(index)) {
                 break;
             }
 
@@ -684,6 +777,11 @@ public class MultiPaxosWithHeartbeatsServer extends Replica {
 
     public int getHighWaterMark() {
         return highWaterMark;
+    }
+
+    /** True while a decision has been applied but is not yet durable, so no reply for it has gone out. */
+    public boolean hasDecisionsNotYetDurable() {
+        return decisionsNotYetDurable > 0;
     }
 
     public boolean isFollower() {

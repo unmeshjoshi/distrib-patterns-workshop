@@ -16,15 +16,13 @@ public class DurableKVStore {
     public DurableKVStore(Config config) {
         this.wal = WriteAheadLog.openWAL(config);
         applyLog();
-        //Assignment 1: applyLog at startup.
     }
+
     public String get(String key) {
         return kv.get(key);
     }
 
     public void put(String key, String value) {
-
-
         appendLog(key, value);
         kv.put(key, value);
     }
