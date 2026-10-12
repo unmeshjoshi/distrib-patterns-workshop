@@ -1,6 +1,5 @@
 package com.distribpatterns.quorumkv;
 
-import com.tickloom.Process;
 import com.tickloom.ProcessFactory;
 import com.tickloom.ProcessId;
 import com.tickloom.testkit.Cluster;

@@ -89,7 +89,11 @@ public class QuorumBasicScenariosTest {
 
             cluster.healAllPartitions();
             cluster.partitionNodes(NodeGroup.of(ATHENS, BYZANTIUM), NodeGroup.of(CYRENE));
-            assertReadReturns(cluster, alice, key, value2);
+
+            var response2 = cluster.tickUntilComplete(alice.get(key));
+
+            assertTrue(response2.found(), "Read should find a value");
+            assertArrayEquals(value2, response2.value(), "Read should return the expected value");
         }
     }
 
