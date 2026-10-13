@@ -54,7 +54,9 @@ public class ReadRepairScenariosTest {
 
             cluster.healAllPartitions();
 
-            assertReadReturns(cluster, client, key, newValue);
+            var response2 = cluster.tickUntilComplete(client.get(key));
+            assertTrue(response2.found(), "Read should find a value");
+            assertArrayEquals(newValue, response2.value(), "Read should return the expected value");
 
             assertArrayEquals(newValue, storedValue(cluster, CYRENE, key).value());
 
@@ -90,7 +92,9 @@ public class ReadRepairScenariosTest {
 
             cluster.healAllPartitions();
 
-            assertReadReturns(cluster, client, key, value2);
+            var response2 = cluster.tickUntilComplete(client.get(key));
+            assertTrue(response2.found(), "Read should find a value");
+            assertArrayEquals(value2, response2.value(), "Read should return the expected value");
             assertReplicaEventuallyHasValue(cluster, CYRENE, key, value2);
         }
     }
@@ -129,7 +133,9 @@ public class ReadRepairScenariosTest {
 
             cluster.healAllPartitions();
 
-            assertReadReturns(cluster, client, key, value2);
+            var response2 = cluster.tickUntilComplete(client.get(key));
+            assertTrue(response2.found(), "Read should find a value");
+            assertArrayEquals(value2, response2.value(), "Read should return the expected value");
             assertReplicaEventuallyHasValue(cluster, CYRENE, key, value2);
         }
     }
@@ -173,7 +179,9 @@ public class ReadRepairScenariosTest {
 
             cluster.healAllPartitions();
 
-            assertReadReturns(cluster, clientB, key, value2);
+            var response2 = cluster.tickUntilComplete(clientB.get(key));
+            assertTrue(response2.found(), "Read should find a value");
+            assertArrayEquals(value2, response2.value(), "Read should return the expected value");
             assertAllReplicasEventuallyHaveValue(cluster, key, value2);
         }
     }
@@ -212,8 +220,12 @@ public class ReadRepairScenariosTest {
 
             cluster.healAllPartitions();
 
-            assertReadReturns(cluster, client, key1, newValue1);
-            assertReadReturns(cluster, client, key2, newValue2);
+            var response5 = cluster.tickUntilComplete(client.get(key1));
+            assertTrue(response5.found(), "Read should find a value");
+            assertArrayEquals(newValue1, response5.value(), "Read should return the expected value");
+            var response4 = cluster.tickUntilComplete(client.get(key2));
+            assertTrue(response4.found(), "Read should find a value");
+            assertArrayEquals(newValue2, response4.value(), "Read should return the expected value");
 
             assertReplicaEventuallyHasValue(cluster, CYRENE, key1, newValue1);
             assertReplicaEventuallyHasValue(cluster, CYRENE, key2, newValue2);
@@ -237,7 +249,9 @@ public class ReadRepairScenariosTest {
             assertTrue(response.success(), "Write should succeed");
             assertAllReplicasEventuallyHaveValue(cluster, key, value);
 
-            assertReadReturns(cluster, client, key, value);
+            var response1 = cluster.tickUntilComplete(client.get(key));
+            assertTrue(response1.found(), "Read should find a value");
+            assertArrayEquals(value, response1.value(), "Read should return the expected value");
             assertAllReplicasEventuallyHaveValue(cluster, key, value);
         }
     }

@@ -53,12 +53,15 @@ public class QuorumBasicScenariosTest {
             byte[] value = "Microservices".getBytes();
 
             cluster.partitionNodes(NodeGroup.of(ATHENS,BYZANTIUM), NodeGroup.of(CYRENE));
-            var response = cluster.tickUntilComplete(client.set(key, value));
-            assertTrue(response.success(), "Write should succeed");
+            var writeResponse = cluster.tickUntilComplete(client.set(key, value));
+            assertTrue(writeResponse.success(), "Write should succeed");
 
             cluster.healAllPartitions();
             cluster.partitionNodes(NodeGroup.of(ATHENS, CYRENE), NodeGroup.of(BYZANTIUM));
-            assertReadReturns(cluster, client, key, value);
+            var readResponse = cluster.tickUntilComplete(client.get(key));
+
+            assertTrue(readResponse.found(), "Read should find a value");
+            assertArrayEquals(value, readResponse.value(), "Read should return the expected value");
         }
     }
 
@@ -82,7 +85,9 @@ public class QuorumBasicScenariosTest {
 
             cluster.healAllPartitions();
             cluster.partitionNodes(NodeGroup.of(ATHENS,CYRENE), NodeGroup.of(BYZANTIUM));
-            assertReadReturns(cluster, alice, key, value1);
+            var response3 = cluster.tickUntilComplete(alice.get(key));
+            assertTrue(response3.found(), "Read should find a value");
+            assertArrayEquals(value1, response3.value(), "Read should return the expected value");
 
             var response = cluster.tickUntilComplete(alice.set(key, value2));
             assertTrue(response.success(), "Write should succeed");

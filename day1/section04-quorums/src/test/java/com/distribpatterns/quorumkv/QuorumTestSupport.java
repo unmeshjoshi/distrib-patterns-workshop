@@ -36,12 +36,6 @@ final class QuorumTestSupport {
         cluster.tickUntil(future::isFailed);
     }
 
-    static void assertReadReturns(Cluster cluster, QuorumKVClient client, byte[] key, byte[] expectedValue) {
-        var response = cluster.tickUntilComplete(client.get(key));
-        assertTrue(response.found(), "Read should find a value");
-        assertArrayEquals(expectedValue, response.value(), "Read should return the expected value");
-    }
-
     static void assertReplicaEventuallyHasValue(Cluster cluster, ProcessId node, byte[] key, byte[] expectedValue) {
         cluster.tickUntil(() -> replicaHasValue(cluster, node, key, expectedValue));
     }
