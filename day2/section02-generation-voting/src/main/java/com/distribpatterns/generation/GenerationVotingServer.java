@@ -10,7 +10,6 @@ import com.tickloom.Replica;
 import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.messaging.Message;
 import com.tickloom.messaging.MessageType;
-import com.tickloom.messaging.RequestCallback;
 import com.tickloom.network.PeerType;
 
 import java.util.List;
@@ -118,16 +117,11 @@ public class GenerationVotingServer extends Replica {
         return result;
     }
 
-    @SuppressWarnings("unchecked")
     private TickCompletableFuture<Map<ProcessId, PrepareResponse>> tryProposal(long proposedGeneration) {
         var prepareReq = new PrepareRequest(proposedGeneration);
-        var ack = new ElectionQuorumCallback(clusterSize(), proposedGeneration);
-        for (ProcessId node : getAllNodes()) {
-            String correlationId = idGen.generateCorrelationId("internal");
-            waitingList.add(correlationId, (RequestCallback<Object>) (RequestCallback<?>) ack);
-            send(createMessage(node, correlationId, prepareReq, GenerationMessageTypes.PREPARE_REQUEST));
-        }
-        return ack.getQuorumFuture();
+        return this.<PrepareResponse>quorumRequest(GenerationMessageTypes.PREPARE_REQUEST, prepareReq)
+                .countResponseIf(response -> response.promised() && response.currentGeneration() == proposedGeneration)
+                .send();
     }
 
     private void logWonElection(long proposedGeneration, Map<ProcessId, PrepareResponse> responses) {
