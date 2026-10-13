@@ -3,7 +3,6 @@ package com.distribpatterns.paxos;
 import com.distribpatterns.paxos.messages.*;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
-import com.tickloom.fs.FileIO;
 import com.tickloom.fs.OpenMode;
 import com.tickloom.Replica;
 import com.tickloom.future.TickCompletableFuture;
@@ -39,7 +38,6 @@ public class PaxosServer extends Replica {
     private PaxosState state = new PaxosState();
 
     // Every promise, accept and commit is appended here, and the reply goes out only once it is durable.
-    private FileIO decisionFile;
     private BatchedLog decisionLog;
     private int decisionsNotYetDurable;
     
@@ -57,9 +55,6 @@ public class PaxosServer extends Replica {
     /** The server is not running until its state is rebuilt from the decision log. */
     @Override
     protected TickCompletableFuture<?> onStart() {
-        if (decisionFile != null) {
-            decisionFile.close();   // a restart on the same instance: let go of the old handle
-        }
         state = new PaxosState();
         counters.clear();
         kvStore.clear();
@@ -69,7 +64,6 @@ public class PaxosServer extends Replica {
                 // A new file's name is durable only after the directory is synced.
                 .thenCompose(opened -> fileSystem.syncDirectory().thenApply(ignored -> opened))
                 .thenCompose(opened -> {
-                    decisionFile = opened;
                     Wal wal = new Wal(opened);
                     return wal.recover().thenApply(entries -> {
                         entries.forEach(entry -> replay(deserializePayload(entry.payload(), PaxosDecision.class)));
