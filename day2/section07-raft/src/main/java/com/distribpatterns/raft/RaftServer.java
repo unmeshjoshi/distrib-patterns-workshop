@@ -4,7 +4,6 @@ import com.distribpatterns.raft.messages.*;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
-import com.tickloom.fs.FileIO;
 import com.tickloom.fs.OpenMode;
 import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.messaging.Message;
@@ -50,7 +49,6 @@ public class RaftServer extends Replica {
     // What the write-ahead log holds, or is about to hold: the term and vote last appended to it.
     private static final String WAL_FILE = "raft.wal";
     private static final int GROUP_WAIT_TICKS = 2;
-    private FileIO walFile;
     private BatchedLog wal;
     private int loggedTerm = 0;
     private ProcessId loggedVotedFor = null;
@@ -124,8 +122,8 @@ public class RaftServer extends Replica {
     /** The server is not running until its term, vote and log are rebuilt from the write-ahead log. */
     @Override
     protected TickCompletableFuture<?> onStart() {
-        if (walFile != null) {
-            walFile.close();   // a restart on the same instance: let go of the old handle
+        if (wal != null) {
+            wal.close();   // a restart on the same instance: let go of the old handle
         }
         currentTerm = 0;
         votedFor = null;
@@ -143,7 +141,6 @@ public class RaftServer extends Replica {
                 // A new file's name is durable only after the directory is synced.
                 .thenCompose(opened -> fileSystem.syncDirectory().thenApply(ignored -> opened))
                 .thenCompose(opened -> {
-                    walFile = opened;
                     Wal recovering = new Wal(opened);
                     return recovering.recover().thenApply(entries -> {
                         entries.forEach(entry -> replay(deserializePayload(entry.payload(), RaftRecord.class)));

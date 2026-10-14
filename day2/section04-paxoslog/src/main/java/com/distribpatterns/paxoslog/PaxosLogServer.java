@@ -4,7 +4,6 @@ import com.distribpatterns.paxoslog.messages.*;
 import com.tickloom.ProcessId;
 import com.tickloom.ProcessParams;
 import com.tickloom.Replica;
-import com.tickloom.fs.FileIO;
 import com.tickloom.fs.OpenMode;
 import com.tickloom.future.TickCompletableFuture;
 import com.tickloom.messaging.Message;
@@ -38,7 +37,6 @@ public class PaxosLogServer extends Replica {
     // Indexes whose commit record is durable. Only these are executed, so the state machine never runs ahead of the log.
     private final Set<Integer> durablyCommitted = new HashSet<>();
 
-    private FileIO decisionFile;
     private BatchedLog decisionLog;
     private int decisionsNotYetDurable;
 
@@ -61,8 +59,8 @@ public class PaxosLogServer extends Replica {
     /** The server is not running until its log is rebuilt from the write-ahead log and the committed entries executed. */
     @Override
     protected TickCompletableFuture<?> onStart() {
-        if (decisionFile != null) {
-            decisionFile.close();   // a restart on the same instance: let go of the old handle
+        if (decisionLog != null) {
+            decisionLog.close();   // a restart on the same instance: let go of the old handle
         }
         paxosLogCache.clear();
         durablyCommitted.clear();
@@ -74,7 +72,6 @@ public class PaxosLogServer extends Replica {
                 // A new file's name is durable only after the directory is synced.
                 .thenCompose(opened -> fileSystem.syncDirectory().thenApply(ignored -> opened))
                 .thenCompose(opened -> {
-                    decisionFile = opened;
                     Wal wal = new Wal(opened);
                     return wal.recover().thenApply(entries -> {
                         entries.forEach(entry ->
@@ -90,7 +87,7 @@ public class PaxosLogServer extends Replica {
                         paxosLogCache.values().forEach(state ->
                                 generationCounter.accumulateAndGet(state.promisedGeneration(), Math::max));
                         decisionLog = new BatchedLog(wal, GROUP_WAIT_TICKS);
-                        return (Void) null;
+                        return null;
                     });
                 });
     }
