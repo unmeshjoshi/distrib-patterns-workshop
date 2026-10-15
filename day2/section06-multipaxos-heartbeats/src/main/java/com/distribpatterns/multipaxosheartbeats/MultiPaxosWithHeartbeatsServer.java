@@ -62,7 +62,14 @@ public class MultiPaxosWithHeartbeatsServer extends Replica {
 
     public MultiPaxosWithHeartbeatsServer(List<ProcessId> peerIds, ProcessParams processParams) {
         super(peerIds, processParams);
-        configureElectionTimeout();
+        configureElectionTimeout(staggeredElectionTimeout());
+        becomeFollower(promisedGeneration);
+    }
+
+    /** Lets a test choose each node's election timeout, and so which node times out first. */
+    public MultiPaxosWithHeartbeatsServer(List<ProcessId> peerIds, ProcessParams processParams, long electionTimeoutTicks) {
+        super(peerIds, processParams);
+        configureElectionTimeout(electionTimeoutTicks);
         becomeFollower(promisedGeneration);
     }
 
@@ -686,10 +693,13 @@ public class MultiPaxosWithHeartbeatsServer extends Replica {
         leaderHeartbeatTimeout.start();
     }
 
-    private void configureElectionTimeout() {
+    private long staggeredElectionTimeout() {
         // Use a deterministic per-node stagger instead of randomness so followers
         // do not all start elections on the same tick in the simulator.
-        long electionTimeoutTicks = BASE_ELECTION_TIMEOUT_TICKS + (stableNodeOrder() * ELECTION_TIMEOUT_STEP_TICKS);
+        return BASE_ELECTION_TIMEOUT_TICKS + (stableNodeOrder() * ELECTION_TIMEOUT_STEP_TICKS);
+    }
+
+    private void configureElectionTimeout(long electionTimeoutTicks) {
         leaderHeartbeatTimeout = new Timeout(id + "-heartbeat-timeout", electionTimeoutTicks);
         System.out.println(id + ": Election timeout = " + electionTimeoutTicks + " ticks");
     }
