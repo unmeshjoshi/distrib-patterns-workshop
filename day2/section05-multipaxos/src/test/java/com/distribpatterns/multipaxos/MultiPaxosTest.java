@@ -25,6 +25,7 @@ public class MultiPaxosTest {
     
     // Client
     private static final ProcessId CLIENT = ProcessId.of("client");
+    private static final ProcessId SECOND_CLIENT = ProcessId.of("second-client");
     private static final String TITLE_KEY = "title";
     private static final String AUTHOR_KEY = "author";
     
@@ -157,6 +158,87 @@ public class MultiPaxosTest {
         }
     }
     
+    @Test
+    @DisplayName("Leader Change: A new leader appends after the committed entries, not over them")
+    void testNewLeaderAppendsAfterCommittedEntries() throws IOException {
+        try (var cluster = new Cluster()
+                .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
+                .useSimulatedNetwork()
+                .build((peerIds, processParams) -> new MultiPaxosServer(peerIds, processParams))
+                .start()) {
+
+            var athens = getServer(cluster, ATHENS);
+            athens.startLeaderElection();
+            cluster.tickUntil(athens::isLeader);
+
+            var client = cluster.newClientConnectedTo(CLIENT, ATHENS, MultiPaxosClient::new);
+            assertSuccessfulCommand(cluster.tickUntilComplete(client.execute(
+                ATHENS,
+                new SetValueOperation(TITLE_KEY, "Microservices")
+            )));
+            cluster.tickUntil(() -> getServer(cluster, BYZANTIUM).getHighWaterMark() == 0
+                && getServer(cluster, CYRENE).getHighWaterMark() == 0);
+
+            cluster.crashNode(ATHENS);
+            var byzantium = getServer(cluster, BYZANTIUM);
+            byzantium.startLeaderElection();
+            cluster.tickUntil(byzantium::isLeader);
+
+            var secondClient = cluster.newClientConnectedTo(SECOND_CLIENT, BYZANTIUM, MultiPaxosClient::new);
+            assertSuccessfulCommand(cluster.tickUntilComplete(secondClient.execute(
+                BYZANTIUM,
+                new SetValueOperation(AUTHOR_KEY, "Martin Fowler")
+            )));
+            cluster.tickUntil(() -> getServer(cluster, CYRENE).getHighWaterMark() == 1);
+
+            for (ProcessId id : List.of(BYZANTIUM, CYRENE)) {
+                assertEquals("Microservices", getServer(cluster, id).getValue(TITLE_KEY));
+                assertEquals("Martin Fowler", getServer(cluster, id).getValue(AUTHOR_KEY));
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("Leader Change: A new leader learns an entry it missed that the others committed")
+    void testNewLeaderLearnsCommittedEntryItMissed() throws IOException {
+        try (var cluster = new Cluster()
+                .withProcessIds(List.of(ATHENS, BYZANTIUM, CYRENE))
+                .useSimulatedNetwork()
+                .build((peerIds, processParams) -> new MultiPaxosServer(peerIds, processParams))
+                .start()) {
+
+            var athens = getServer(cluster, ATHENS);
+            athens.startLeaderElection();
+            cluster.tickUntil(athens::isLeader);
+
+            // Cyrene hears nothing from athens, so the title is committed on athens and byzantium only.
+            cluster.partitionOneWay(ATHENS, CYRENE);
+            var client = cluster.newClientConnectedTo(CLIENT, ATHENS, MultiPaxosClient::new);
+            assertSuccessfulCommand(cluster.tickUntilComplete(client.execute(
+                ATHENS,
+                new SetValueOperation(TITLE_KEY, "Microservices")
+            )));
+            var cyrene = getServer(cluster, CYRENE);
+            assertTrue(cyrene.getPaxosLog().isEmpty(), "Cyrene should have missed the write");
+
+            cluster.crashNode(ATHENS);
+            cyrene.startLeaderElection();
+            cluster.tickUntil(cyrene::isLeader);
+
+            var secondClient = cluster.newClientConnectedTo(SECOND_CLIENT, CYRENE, MultiPaxosClient::new);
+            assertSuccessfulCommand(cluster.tickUntilComplete(secondClient.execute(
+                CYRENE,
+                new SetValueOperation(AUTHOR_KEY, "Martin Fowler")
+            )));
+            cluster.tickUntil(() -> getServer(cluster, BYZANTIUM).getHighWaterMark() == 1);
+
+            for (ProcessId id : List.of(BYZANTIUM, CYRENE)) {
+                assertEquals("Microservices", getServer(cluster, id).getValue(TITLE_KEY));
+                assertEquals("Martin Fowler", getServer(cluster, id).getValue(AUTHOR_KEY));
+            }
+        }
+    }
+
     private static MultiPaxosServer getServer(Cluster cluster, ProcessId id) {
         return cluster.getNode(id);
     }

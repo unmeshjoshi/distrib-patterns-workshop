@@ -6,19 +6,18 @@ import java.util.Map;
 
 /**
  * Response to FullLogPrepareRequest.
- * Contains all uncommitted log entries for log merging.
+ * Contains the acceptor's entire log, committed entries included, for log merging.
  */
 public record FullLogPrepareResponse(
     boolean promised,
-    Map<Integer, PaxosState> uncommittedEntries
+    Map<Integer, PaxosState> log
 ) {
-    
+
     public static FullLogPrepareResponse rejected() {
         return new FullLogPrepareResponse(false, Map.of());
     }
-    
-    public static FullLogPrepareResponse accepted(Map<Integer, PaxosState> uncommittedEntries) {
-        return new FullLogPrepareResponse(true, uncommittedEntries);
+
+    public static FullLogPrepareResponse accepted(Map<Integer, PaxosState> log) {
+        return new FullLogPrepareResponse(true, log);
     }
 }
-

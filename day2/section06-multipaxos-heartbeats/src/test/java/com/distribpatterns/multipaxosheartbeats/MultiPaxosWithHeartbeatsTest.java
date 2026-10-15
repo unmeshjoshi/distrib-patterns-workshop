@@ -24,7 +24,9 @@ public class MultiPaxosWithHeartbeatsTest {
     private static final List<ProcessId> REPLICAS = List.of(ATHENS, BYZANTIUM, CYRENE);
 
     private static final ProcessId CLIENT_ALICE = ProcessId.of("alice");
+    private static final ProcessId CLIENT_BOB = ProcessId.of("bob");
     private static final String TITLE_KEY = "title";
+    private static final String AUTHOR_KEY = "author";
 
     @Test
     @DisplayName("Automatic Leader Election: Heartbeat timeout triggers election")
@@ -127,6 +129,80 @@ public class MultiPaxosWithHeartbeatsTest {
             cluster.tickUntil(() -> allNodesHaveGeneration(cluster, leaderGeneration));
 
             assertGenerationOnAllReplicas(cluster, leaderGeneration);
+        }
+    }
+
+    @Test
+    @DisplayName("Leader Change: A new leader appends after the committed entries, not over them")
+    void testNewLeaderAppendsAfterCommittedEntries() throws IOException {
+        try (var cluster = new Cluster()
+            .withProcessIds(REPLICAS)
+            .useSimulatedNetwork()
+            .build((peerIds, processParams) -> new MultiPaxosWithHeartbeatsServer(peerIds, processParams))
+            .start()) {
+
+            waitUntilAllNodesInitialised(cluster);
+
+            ProcessId firstLeader = waitUntilLeaderElected(cluster);
+            var client = cluster.newClientConnectedTo(CLIENT_ALICE, firstLeader, MultiPaxosWithHeartbeatsClient::new);
+            assertSuccessfulCommand(cluster.tickUntilComplete(
+                client.execute(firstLeader, new SetValueOperation(TITLE_KEY, "Microservices"))));
+            tickFor(cluster, 20);
+
+            cluster.crashNode(firstLeader);
+            List<ProcessId> survivors = REPLICAS.stream().filter(id -> !id.equals(firstLeader)).toList();
+            cluster.tickUntil(() -> survivors.stream().anyMatch(id -> getServer(cluster, id).isLeader()));
+            ProcessId secondLeader = survivors.stream().filter(id -> getServer(cluster, id).isLeader()).findFirst().get();
+
+            var secondClient = cluster.newClientConnectedTo(CLIENT_BOB, secondLeader, MultiPaxosWithHeartbeatsClient::new);
+            assertSuccessfulCommand(cluster.tickUntilComplete(
+                secondClient.execute(secondLeader, new SetValueOperation(AUTHOR_KEY, "Martin"))));
+            tickFor(cluster, 20);
+
+            for (ProcessId id : survivors) {
+                assertEquals("Microservices", getServer(cluster, id).getValue(TITLE_KEY));
+                assertEquals("Martin", getServer(cluster, id).getValue(AUTHOR_KEY));
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("Leader Change: A new leader learns an entry it missed that the others committed")
+    void testNewLeaderLearnsCommittedEntryItMissed() throws IOException {
+        try (var cluster = new Cluster()
+            .withProcessIds(REPLICAS)
+            .useSimulatedNetwork()
+            .build((peerIds, processParams) -> new MultiPaxosWithHeartbeatsServer(peerIds, processParams))
+            .start()) {
+
+            waitUntilAllNodesInitialised(cluster);
+
+            ProcessId firstLeader = waitUntilLeaderElected(cluster);
+            List<ProcessId> survivors = REPLICAS.stream().filter(id -> !id.equals(firstLeader)).toList();
+            ProcessId lagging = survivors.get(0);
+            ProcessId upToDate = survivors.get(1);
+
+            // The lagging node hears nothing from the leader, so the title is committed on the other two only.
+            // The write finishes well inside the election timeout, so the lagging node does not start an election.
+            cluster.partitionOneWay(firstLeader, lagging);
+            var client = cluster.newClientConnectedTo(CLIENT_ALICE, firstLeader, MultiPaxosWithHeartbeatsClient::new);
+            assertSuccessfulCommand(cluster.tickUntilComplete(
+                client.execute(firstLeader, new SetValueOperation(TITLE_KEY, "Microservices"))));
+            assertTrue(getServer(cluster, lagging).getPaxosLog().isEmpty(), "The lagging node should have missed the write");
+
+            cluster.crashNode(firstLeader);
+            getServer(cluster, lagging).startElection();
+            cluster.tickUntil(() -> getServer(cluster, lagging).isLeader());
+
+            var secondClient = cluster.newClientConnectedTo(CLIENT_BOB, lagging, MultiPaxosWithHeartbeatsClient::new);
+            assertSuccessfulCommand(cluster.tickUntilComplete(
+                secondClient.execute(lagging, new SetValueOperation(AUTHOR_KEY, "Martin"))));
+            tickFor(cluster, 20);
+
+            for (ProcessId id : List.of(lagging, upToDate)) {
+                assertEquals("Microservices", getServer(cluster, id).getValue(TITLE_KEY));
+                assertEquals("Martin", getServer(cluster, id).getValue(AUTHOR_KEY));
+            }
         }
     }
 

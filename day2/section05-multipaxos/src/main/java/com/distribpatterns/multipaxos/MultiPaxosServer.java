@@ -19,7 +19,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Collectors;
 
 /**
  * Multi-Paxos: Optimized Paxos with stable leader.
@@ -352,8 +351,12 @@ public class MultiPaxosServer extends Replica {
         System.out.println(id + ": Starting leader election");
         role = ServerRole.LookingForLeader;
         
-        int newGeneration = generationCounter.incrementAndGet();
-        sendFullLogPrepare(newGeneration);
+        sendFullLogPrepare(nextGeneration());
+    }
+
+    // Above every generation this node has promised, or its own prepare would be rejected.
+    private int nextGeneration() {
+        return generationCounter.updateAndGet(current -> Math.max(current, promisedGeneration) + 1);
     }
     
     private void sendFullLogPrepare(int generation) {
@@ -377,7 +380,7 @@ public class MultiPaxosServer extends Replica {
         responses.values().forEach(this::mergeLog);
         promisedGeneration = generation;
         role = ServerRole.Leader;
-        completeUncommittedEntries(generation);
+        completeLogAfterElection(generation);
     }
 
     private void failLeaderElection(Throwable error) {
@@ -493,11 +496,14 @@ public class MultiPaxosServer extends Replica {
         promisedGeneration = generation;
         role = ServerRole.Follower;
 
-        Map<Integer, PaxosState> uncommitted = getUncommittedEntries();
+        // The entire log goes back, committed entries included: the candidate may have missed an entry this node
+        // has committed, and without it the candidate would propose something else at that index.
+        // An optimisation is for the candidate to send its highWaterMark and get back only the entries above it.
+        Map<Integer, PaxosState> log = new HashMap<>(paxosLog);
         recordDecision(MultiPaxosDecision.promise(generation), () -> {
             System.out.println(id + ": PROMISED generation " + generation + ", becoming FOLLOWER, " +
-                             "sending " + uncommitted.size() + " uncommitted entries");
-            sendFullLogPrepareResponse(message, FullLogPrepareResponse.accepted(uncommitted));
+                             "sending " + log.size() + " log entries");
+            sendFullLogPrepareResponse(message, FullLogPrepareResponse.accepted(log));
         });
     }
 
@@ -521,51 +527,57 @@ public class MultiPaxosServer extends Replica {
     }
     
     private void mergeLog(FullLogPrepareResponse response) {
-        for (Map.Entry<Integer, PaxosState> entry : response.uncommittedEntries().entrySet()) {
+        for (Map.Entry<Integer, PaxosState> entry : response.log().entrySet()) {
             int index = entry.getKey();
             PaxosState peerState = entry.getValue();
             PaxosState selfState = paxosLog.get(index);
             
-            // Choose entry with highest generation
-            if (selfState == null || 
-                (peerState.acceptedGeneration().isPresent() && 
-                 (selfState.acceptedGeneration().isEmpty() || 
-                  peerState.acceptedGeneration().get() > selfState.acceptedGeneration().get()))) {
+            if (selfState == null || peerWins(peerState, selfState)) {
                 paxosLog.put(index, peerState);
                 System.out.println(id + ": Merged log entry " + index + " from peer");
             }
         }
     }
-    
-    private void completeUncommittedEntries(int generation) {
-        Map<Integer, PaxosState> uncommitted = getUncommittedEntries();
-        
-        if (uncommitted.isEmpty()) {
-            System.out.println(id + ": No uncommitted entries to complete");
-            return;
+
+    // A committed entry is chosen, so it wins over anything merely accepted; otherwise the higher generation wins.
+    private boolean peerWins(PaxosState peerState, PaxosState selfState) {
+        if (selfState.committedValue().isPresent()) {
+            return false;
         }
-        
-        System.out.println(id + ": Completing " + uncommitted.size() + " uncommitted entries");
-        
-        for (Map.Entry<Integer, PaxosState> entry : uncommitted.entrySet()) {
-            int index = entry.getKey();
-            PaxosState state = entry.getValue();
-            
-            if (state.acceptedValue().isPresent()) {
-                Operation value = state.acceptedValue().get();
-                System.out.println(id + ": Completing uncommitted entry at index " + index);
-                
-                // Propose and commit this value
-                String dummyClientKey = "recovery_" + index;
-                startProposePhase(index, generation, value, dummyClientKey);
-            }
+        if (peerState.committedValue().isPresent()) {
+            return true;
         }
+        return peerState.acceptedGeneration().isPresent() &&
+            (selfState.acceptedGeneration().isEmpty() ||
+                peerState.acceptedGeneration().get() > selfState.acceptedGeneration().get());
     }
     
-    private Map<Integer, PaxosState> getUncommittedEntries() {
-        return paxosLog.entrySet().stream()
-            .filter(e -> e.getValue().committedValue().isEmpty())
-            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+    /**
+     * Completes every entry above the high-water mark in the new generation. A committed entry learned from a peer
+     * skips PROPOSE and is only sent as a COMMIT, which makes it durable here and reaches followers that missed it.
+     * An uncommitted entry is proposed again. An index nobody in the quorum knows about cannot have been chosen,
+     * so it is filled with a NO-OP; otherwise execution would stop at the gap.
+     */
+    private void completeLogAfterElection(int generation) {
+        int lastIndex = paxosLog.keySet().stream().max(Integer::compare).orElse(-1);
+        // New client commands go after every index the merged log knows about.
+        logIndex.accumulateAndGet(lastIndex + 1, Math::max);
+        
+        for (int index = highWaterMark + 1; index <= lastIndex; index++) {
+            PaxosState state = paxosLog.get(index);
+            String recoveryClientKey = "recovery_" + index;
+            
+            if (state != null && state.committedValue().isPresent()) {
+                System.out.println(id + ": Re-committing committed entry at index " + index);
+                startCommitPhase(index, generation, state.committedValue().get(), recoveryClientKey);
+            } else if (state != null && state.acceptedValue().isPresent()) {
+                System.out.println(id + ": Completing uncommitted entry at index " + index);
+                startProposePhase(index, generation, state.acceptedValue().get(), recoveryClientKey);
+            } else {
+                System.out.println(id + ": Filling gap at index " + index + " with NO-OP");
+                startProposePhase(index, generation, NO_OP, recoveryClientKey);
+            }
+        }
     }
     
     // ========== LOG EXECUTION (STATE MACHINE) ==========
