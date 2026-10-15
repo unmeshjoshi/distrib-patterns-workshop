@@ -3,6 +3,7 @@ package com.distribpatterns.paxoslog;
 import com.distribpatterns.paxoslog.messages.CompareAndSwapOperation;
 import com.distribpatterns.paxoslog.messages.ExecuteCommandResponse;
 import com.distribpatterns.paxoslog.messages.GetValueResponse;
+import com.distribpatterns.paxoslog.messages.Operation;
 import com.distribpatterns.paxoslog.messages.SetValueOperation;
 import com.tickloom.ProcessId;
 import com.tickloom.testkit.Cluster;
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -78,9 +80,17 @@ public class PaxosLogTest {
                     BYZANTIUM,
                     new CompareAndSwapOperation(AUTHOR_KEY, "Martin", "Martin Fowler")
             ));
-            
+
             PaxosLogServer athens = getServer(cluster, ATHENS);
             assertHighWaterMarkOnAllReplicas(cluster, 2);
+            printLogs(cluster);
+
+            // Byzantium found index 0 taken and index 1 too, so the three commands sit at 0, 1 and 2 on every node.
+            assertCommittedLogOnAllReplicas(cluster, List.of(
+                new SetValueOperation(TITLE_KEY, "Microservices"),
+                new SetValueOperation(AUTHOR_KEY, "Martin"),
+                new CompareAndSwapOperation(AUTHOR_KEY, "Martin", "Martin Fowler")
+            ));
             assertEquals("Microservices", athens.getValue(TITLE_KEY));
             assertEquals("Martin Fowler", athens.getValue(AUTHOR_KEY));
         }
@@ -272,6 +282,28 @@ public class PaxosLogTest {
         assertNotNull(entry, processId + " should have a log entry at index " + index);
         assertTrue(entry.committedValue().isPresent(),
                 processId + " should have a committed log entry at index " + index);
+    }
+
+    private static void assertCommittedLogOnAllReplicas(Cluster cluster, List<Operation> expectedCommands) {
+        for (ProcessId id : List.of(ATHENS, BYZANTIUM, CYRENE)) {
+            var log = getServer(cluster, id).getPaxosLog();
+            assertEquals(expectedCommands.size(), log.size(), id + " should have " + expectedCommands.size() + " log entries");
+            for (int index = 0; index < expectedCommands.size(); index++) {
+                assertEquals(Optional.of(expectedCommands.get(index)), log.get(index).committedValue(),
+                    id + " should have " + expectedCommands.get(index) + " committed at index " + index);
+            }
+        }
+    }
+
+    private static void printLogs(Cluster cluster) {
+        System.out.println("\n=== Replicated log on each node ===");
+        for (ProcessId id : List.of(ATHENS, BYZANTIUM, CYRENE)) {
+            System.out.println(id + ":");
+            getServer(cluster, id).getPaxosLog().forEach((index, state) ->
+                System.out.println("  " + index + ": " + state.committedValue().orElse(null)
+                    + " (generation " + state.acceptedGeneration().orElse(null) + ")"));
+        }
+        System.out.println();
     }
 
     private static PaxosLogServer getServer(Cluster cluster, ProcessId id) {
