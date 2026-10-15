@@ -129,4 +129,28 @@ public class MultiPaxosWithHeartbeatsDurabilityTest {
             assertTrue(promise.isPending(), "the promise was never answered");
         }
     }
+
+    @Test
+    @DisplayName("An election overtaken by a higher promise does not make the candidate leader")
+    void anOvertakenElectionDoesNotLowerThePromise() throws IOException {
+        try (var cluster = newCluster()) {
+            cluster.tickUntil(cluster::areAllNodesInitialized);
+            MultiPaxosWithHeartbeatsServer athens = server(cluster, ATHENS);
+            // Athens's election can complete only through byzantium, whose promise arrives late.
+            cluster.partitionOneWay(ATHENS, CYRENE);
+            cluster.setNetworkDelay(BYZANTIUM, ATHENS, 30);
+
+            athens.startElection();
+            cluster.tickUntil(() -> athens.getPromisedGeneration() == 1);
+
+            // While the election runs, athens promises a higher generation to another candidate.
+            var candidate = cluster.newClient(CANDIDATE, PrepareClient::new);
+            assertTrue(cluster.tickUntilComplete(candidate.prepare(ATHENS, 5)).promised());
+
+            for (int i = 0; i < 50; i++) cluster.tick();   // byzantium's late promise completes athens's election
+
+            assertFalse(athens.isLeader(), "leading at generation 1 would break the promise to generation 5");
+            assertEquals(5, athens.getPromisedGeneration());
+        }
+    }
 }

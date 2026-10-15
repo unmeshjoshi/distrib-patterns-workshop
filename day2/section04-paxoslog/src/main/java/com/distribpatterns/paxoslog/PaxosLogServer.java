@@ -13,7 +13,6 @@ import com.tickloom.wal.BatchedLog;
 import com.tickloom.wal.Wal;
 
 import java.util.*;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * PaxosLog: Replicated log where each entry is decided via Paxos consensus.
@@ -47,7 +46,7 @@ public class PaxosLogServer extends Replica {
     private int highWaterMark = -1;
     
     // Generation counter for Paxos rounds
-    private final AtomicInteger generationCounter = new AtomicInteger(0);
+    private int generationCounter = 0;
     
     // No-op operation for reads
     private static final NoOpOperation NO_OP = new NoOpOperation();
@@ -85,7 +84,7 @@ public class PaxosLogServer extends Replica {
                         tryExecuteLogEntries();
                         // Generations this node proposes must beat every promise it has already made.
                         paxosLogCache.values().forEach(state ->
-                                generationCounter.accumulateAndGet(state.promisedGeneration(), Math::max));
+                                generationCounter = Math.max(generationCounter, state.promisedGeneration()));
                         decisionLog = new BatchedLog(wal, GROUP_WAIT_TICKS);
                         return null;
                     });
@@ -219,7 +218,7 @@ public class PaxosLogServer extends Replica {
      * If consensus fails (value rejected), retry at next index.
      */
     private void appendToLog(int startIndex, Operation operation, String clientKey) {
-        int generation = generationCounter.incrementAndGet();
+        int generation = ++generationCounter;
         System.out.println(id + ": Attempting to append " + operation + " at index " + startIndex + 
                          " with generation " + generation);
         
@@ -262,7 +261,7 @@ public class PaxosLogServer extends Replica {
                                                 int attempt,
                                                 Throwable error) {
         System.out.println(id + ": PREPARE quorum failed for index " + logIndex + ": " + error.getMessage());
-        int newGeneration = generationCounter.incrementAndGet();
+        int newGeneration = ++generationCounter;
         runPaxosForIndex(logIndex, newGeneration, operation, clientKey, attempt + 1);
     }
     
@@ -293,7 +292,7 @@ public class PaxosLogServer extends Replica {
                                                  String clientKey,
                                                  int attempt) {
         System.out.println(id + ": PROPOSE quorum failed for index " + logIndex);
-        int newGeneration = generationCounter.incrementAndGet();
+        int newGeneration = ++generationCounter;
         runPaxosForIndex(logIndex, newGeneration, initialOperation, clientKey, attempt + 1);
     }
     
@@ -366,7 +365,7 @@ public class PaxosLogServer extends Replica {
     }
 
     private void registerClientForCommittedIndex(int logIndex, String clientKey) {
-        waitingList.add(indexClientKeyFor(logIndex), new RequestCallback<>() {
+        waitingList.add(executionKeyFor(logIndex), new RequestCallback<>() {
             @Override
             public void onResponse(Object response, ProcessId fromNode) {
                 waitingList.handleResponse(clientKey, response, fromNode);
@@ -379,8 +378,9 @@ public class PaxosLogServer extends Replica {
         });
     }
 
-    private String indexClientKeyFor(int logIndex) {
-        return "index_" + logIndex + "_client";
+    // The waiting-list key under which a client's callback waits for its log index to be executed.
+    private String executionKeyFor(int logIndex) {
+        return "execution_" + logIndex;
     }
 
     // ========== ACCEPTOR / LEARNER ROLE ==========
@@ -564,7 +564,7 @@ public class PaxosLogServer extends Replica {
             System.out.println(id + ": Executed NO-OP");
         }
         
-        waitingList.handleResponse(indexClientKeyFor(logIndex), new ExecuteCommandResponse(success, result), id);
+        waitingList.handleResponse(executionKeyFor(logIndex), new ExecuteCommandResponse(success, result), id);
     }
 
     private PaxosState getOrCreatePaxosState(int logIndex) {

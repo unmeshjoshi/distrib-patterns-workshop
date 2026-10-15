@@ -18,7 +18,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Multi-Paxos: Optimized Paxos with stable leader.
@@ -59,10 +58,10 @@ public class MultiPaxosServer extends Replica {
     private int highWaterMark = -1;
     
     // Generation counter
-    private final AtomicInteger generationCounter = new AtomicInteger(0);
+    private int generationCounter = 0;
     
-    // Log index counter
-    private final AtomicInteger logIndex = new AtomicInteger(0);
+    // The index the leader gives to the next client command
+    private int nextLogIndex = 0;
     
     // No-op operation for reads
     private static final NoOpOperation NO_OP = new NoOpOperation();
@@ -95,8 +94,8 @@ public class MultiPaxosServer extends Replica {
                         // The state machine is not logged, so the committed entries are executed again.
                         tryExecuteLogEntries();
                         // A leader of this node must propose above every promise it made, and after every index it knows.
-                        generationCounter.accumulateAndGet(promisedGeneration, Math::max);
-                        paxosLog.keySet().forEach(index -> logIndex.accumulateAndGet(index + 1, Math::max));
+                        generationCounter = Math.max(generationCounter, promisedGeneration);
+                        paxosLog.keySet().forEach(index -> nextLogIndex = Math.max(nextLogIndex, index + 1));
                         decisionLog = new BatchedLog(wal, GROUP_WAIT_TICKS);
                         return (Void) null;
                     });
@@ -276,17 +275,17 @@ public class MultiPaxosServer extends Replica {
     // ========== LOG APPEND (OPTIMIZED - NO PREPARE!) ==========
     
     private void appendToLog(Operation operation, String clientKey) {
-        int index = logIndex.getAndIncrement();
+        int index = nextLogIndex++;
         System.out.println(id + ": Leader appending " + operation + " at index " + index);
         
         // KEY OPTIMIZATION: Skip Prepare phase! Leader already has promise.
         startProposePhase(index, promisedGeneration, operation, clientKey);
     }
     
-    // ========== PHASE 1: PROPOSE/ACCEPT (NO PREPARE!) ==========
+    // ========== PHASE 2: PROPOSE/ACCEPT (PHASE 1 RAN ONCE, AT ELECTION) ==========
     
     private void startProposePhase(int logIndex, int generation, Operation operation, String clientKey) {
-        System.out.println(id + ": Phase 1 - PROPOSE " + operation + " for index " + logIndex);
+        System.out.println(id + ": Phase 2 - PROPOSE " + operation + " for index " + logIndex);
 
         ProposeRequest proposeReq = new ProposeRequest(logIndex, generation, operation);
         this.<ProposeResponse>quorumRequest(MultiPaxosMessageTypes.PROPOSE_REQUEST, proposeReq)
@@ -307,10 +306,10 @@ public class MultiPaxosServer extends Replica {
         waitingList.handleResponse(clientKey, new ExecuteCommandResponse(false, null), id);
     }
     
-    // ========== PHASE 2: COMMIT/LEARN ==========
+    // ========== PHASE 3: COMMIT/LEARN ==========
     
     private void startCommitPhase(int logIndex, int generation, Operation operation, String clientKey) {
-        System.out.println(id + ": Phase 2 - COMMIT " + operation + " for index " + logIndex);
+        System.out.println(id + ": Phase 3 - COMMIT " + operation + " for index " + logIndex);
 
         registerClientForCommittedIndex(logIndex, clientKey);
 
@@ -328,7 +327,7 @@ public class MultiPaxosServer extends Replica {
     }
 
     private void registerClientForCommittedIndex(int logIndex, String clientKey) {
-        waitingList.add(indexClientKeyFor(logIndex), new RequestCallback<>() {
+        waitingList.add(executionKeyFor(logIndex), new RequestCallback<>() {
             @Override
             public void onResponse(Object response, ProcessId fromNode) {
                 waitingList.handleResponse(clientKey, response, fromNode);
@@ -341,8 +340,14 @@ public class MultiPaxosServer extends Replica {
         });
     }
 
-    private String indexClientKeyFor(int logIndex) {
-        return "index_" + logIndex + "_client";
+    // The waiting-list key under which a client's callback waits for its log index to be executed.
+    private String executionKeyFor(int logIndex) {
+        return "execution_" + logIndex;
+    }
+
+    // The waiting-list key for an entry a new leader completes; no client waits on it.
+    private String recoveryKeyFor(int logIndex) {
+        return "recovery_" + logIndex;
     }
     
     // ========== LEADER ELECTION ==========
@@ -356,11 +361,12 @@ public class MultiPaxosServer extends Replica {
 
     // Above every generation this node has promised, or its own prepare would be rejected.
     private int nextGeneration() {
-        return generationCounter.updateAndGet(current -> Math.max(current, promisedGeneration) + 1);
+        generationCounter = Math.max(generationCounter, promisedGeneration) + 1;
+        return generationCounter;
     }
     
     private void sendFullLogPrepare(int generation) {
-        System.out.println(id + ": Sending FULL_LOG_PREPARE with generation " + generation);
+        System.out.println(id + ": Phase 1 - FULL_LOG_PREPARE with generation " + generation);
 
         FullLogPrepareRequest prepareReq = new FullLogPrepareRequest(generation);
         this.<FullLogPrepareResponse>quorumRequest(MultiPaxosMessageTypes.FULL_LOG_PREPARE_REQUEST, prepareReq)
@@ -376,6 +382,12 @@ public class MultiPaxosServer extends Replica {
     }
 
     private void becomeLeaderForGeneration(int generation, Map<ProcessId, FullLogPrepareResponse> responses) {
+        if (promisedGeneration > generation) {
+            // This node promised a higher generation while the election ran. Leading now would break that promise.
+            System.out.println(id + ": Election for generation " + generation + " overtaken by " + promisedGeneration);
+            role = ServerRole.Follower;
+            return;
+        }
         System.out.println(id + ": Election succeeded, became LEADER with generation " + generation);
         responses.values().forEach(this::mergeLog);
         promisedGeneration = generation;
@@ -410,6 +422,11 @@ public class MultiPaxosServer extends Replica {
     }
 
     private void acceptProposal(Message message, int logIndex, int generation, Operation value) {
+        if (role == ServerRole.Leader && generation > promisedGeneration) {
+            // A newer leader exists. Staying leader would mean proposing with that leader's generation.
+            System.out.println(id + ": Stepping down, saw a proposal for generation " + generation);
+            role = ServerRole.Follower;
+        }
         promisedGeneration = generation;
         var paxosState = getOrCreatePaxosState(logIndex);
         paxosLog.put(logIndex, paxosState.accept(generation, value));
@@ -561,21 +578,21 @@ public class MultiPaxosServer extends Replica {
     private void completeLogAfterElection(int generation) {
         int lastIndex = paxosLog.keySet().stream().max(Integer::compare).orElse(-1);
         // New client commands go after every index the merged log knows about.
-        logIndex.accumulateAndGet(lastIndex + 1, Math::max);
+        nextLogIndex = Math.max(nextLogIndex, lastIndex + 1);
         
         for (int index = highWaterMark + 1; index <= lastIndex; index++) {
             PaxosState state = paxosLog.get(index);
-            String recoveryClientKey = "recovery_" + index;
+            String recoveryKey = recoveryKeyFor(index);
             
             if (state != null && state.committedValue().isPresent()) {
                 System.out.println(id + ": Re-committing committed entry at index " + index);
-                startCommitPhase(index, generation, state.committedValue().get(), recoveryClientKey);
+                startCommitPhase(index, generation, state.committedValue().get(), recoveryKey);
             } else if (state != null && state.acceptedValue().isPresent()) {
                 System.out.println(id + ": Completing uncommitted entry at index " + index);
-                startProposePhase(index, generation, state.acceptedValue().get(), recoveryClientKey);
+                startProposePhase(index, generation, state.acceptedValue().get(), recoveryKey);
             } else {
                 System.out.println(id + ": Filling gap at index " + index + " with NO-OP");
-                startProposePhase(index, generation, NO_OP, recoveryClientKey);
+                startProposePhase(index, generation, NO_OP, recoveryKey);
             }
         }
     }
@@ -631,8 +648,7 @@ public class MultiPaxosServer extends Replica {
         }
         
         // Notify client if they're waiting for this index
-        String indexClientKey = "index_" + logIndex + "_client";
-        waitingList.handleResponse(indexClientKey, new ExecuteCommandResponse(success, result), id);
+        waitingList.handleResponse(executionKeyFor(logIndex), new ExecuteCommandResponse(success, result), id);
     }
     
     // ========== UTILITY METHODS ==========
