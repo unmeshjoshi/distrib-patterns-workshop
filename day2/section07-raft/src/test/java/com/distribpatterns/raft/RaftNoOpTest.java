@@ -1,16 +1,11 @@
 package com.distribpatterns.raft;
 
-import com.distribpatterns.raft.messages.AppendEntriesRequest;
-import com.distribpatterns.raft.messages.AppendEntriesResponse;
+import com.distribpatterns.raft.messages.NoOpOperation;
 import com.distribpatterns.raft.messages.RaftMessageTypes;
 import com.distribpatterns.raft.messages.SetValueOperation;
 import com.tickloom.ProcessId;
-import com.tickloom.ProcessParams;
-import com.tickloom.algorithms.replication.ClusterClient;
-import com.tickloom.future.TickCompletableFuture;
-import com.tickloom.messaging.Message;
-import com.tickloom.messaging.MessageType;
 import com.tickloom.testkit.Cluster;
+import com.tickloom.testkit.NodeGroup;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -21,59 +16,107 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * A leader commits only entries of its own term, so an entry left over from an earlier term is committed only along
- * with a later entry of the leader's own term. The new leader appends a no-op for that, so it does not have to wait
- * for a client write.
+ * A leader commits only entries of its own term (§5.4.2). Entries left over from an earlier term are committed only
+ * along with a later entry of the leader's own term, even when they are already on a majority. The new leader
+ * appends a no-op for that, so it does not have to wait for a client write.
  */
 public class RaftNoOpTest {
     private static final ProcessId ATHENS = ProcessId.of("athens");
     private static final ProcessId BYZANTIUM = ProcessId.of("byzantium");
     private static final ProcessId CYRENE = ProcessId.of("cyrene");
-    private static final List<ProcessId> ALL = List.of(ATHENS, BYZANTIUM, CYRENE);
+    private static final ProcessId DELPHI = ProcessId.of("delphi");
+    private static final ProcessId EPHESUS = ProcessId.of("ephesus");
+    private static final List<ProcessId> ALL = List.of(ATHENS, BYZANTIUM, CYRENE, DELPHI, EPHESUS);
+    private static final List<ProcessId> SURVIVORS = List.of(BYZANTIUM, CYRENE, DELPHI, EPHESUS);
 
-    /** Plays a leader of an earlier term that has replicated an entry but not committed it. */
-    static class OldLeaderClient extends ClusterClient {
-        OldLeaderClient(List<ProcessId> replicaEndpoints, ProcessParams processParams) {
-            super(replicaEndpoints, processParams);
-        }
+    private static final ProcessId ALICE = ProcessId.of("alice");
 
-        TickCompletableFuture<AppendEntriesResponse> replicate(ProcessId follower, int term, LogEntry entry) {
-            return sendRequest(new AppendEntriesRequest(term, ProcessId.of("old-leader"), 0, 0, List.of(entry), 0),
-                    follower, RaftMessageTypes.APPEND_ENTRIES_REQUEST);
-        }
+    // Athens times out first and leads term 1. When it crashes, byzantium times out before the others and leads
+    // term 2. (RaftServer adds up to the same again as jitter, so the ranges do not overlap.)
+    private static final Map<ProcessId, Integer> ELECTION_TIMEOUTS = Map.of(
+            ATHENS, 100,
+            BYZANTIUM, 300,
+            CYRENE, 1000,
+            DELPHI, 1000,
+            EPHESUS, 1000);
 
-        @Override
-        protected Map<MessageType, Handler> initialiseHandlers() {
-            return Map.of(RaftMessageTypes.APPEND_ENTRIES_RESPONSE, this::handleResponse);
-        }
+    // Log index 0 is the sentinel, 1 is athens's no-op for term 1, and the client writes go at 2, 3 and 4.
+    private static final int TERM_1_NO_OP = 1;
+    private static final int FIRST_WRITE = 2;
+    private static final int LAST_WRITE = 4;
+    private static final int TERM_2_NO_OP = 5;
 
-        private void handleResponse(Message message) {
-            handleResponse(message.correlationId(), deserialize(message.payload(), AppendEntriesResponse.class), message.source());
+    @Test
+    @DisplayName("Entries from an earlier term on a majority are committed by the new leader's no-op")
+    void entriesFromAnEarlierTermAreCommittedByTheNewLeadersNoOp() throws IOException {
+        try (var cluster = new Cluster()
+                .withProcessIds(ALL)
+                .useSimulatedNetwork()
+                .build((peerIds, processParams) ->
+                        new RaftServer(peerIds, processParams, ELECTION_TIMEOUTS.get(processParams.id())))
+                .start()) {
+
+            // 1. Five servers. Athens is elected for term 1 and everyone commits its no-op.
+            cluster.tickUntil(() -> server(cluster, ATHENS).isLeader());
+            cluster.tickUntil(() -> ALL.stream().allMatch(id -> server(cluster, id).getCommitIndex() == TERM_1_NO_OP));
+
+            // 2. A partition cuts athens off from delphi and ephesus, and athens never hears that byzantium and
+            //    cyrene accepted the writes. So the writes reach three servers and athens cannot commit them.
+            cluster.partitionNodes(NodeGroup.of(ATHENS), NodeGroup.of(DELPHI, EPHESUS));
+            cluster.dropMessagesOfType(RaftMessageTypes.APPEND_ENTRIES_RESPONSE,
+                    NodeGroup.of(BYZANTIUM, CYRENE), NodeGroup.of(ATHENS));
+
+            var client = cluster.newClientConnectedTo(ALICE, ATHENS, RaftClient::new);
+            client.execute(ATHENS, new SetValueOperation("title", "Microservices"));
+            client.execute(ATHENS, new SetValueOperation("author", "Martin"));
+            client.execute(ATHENS, new SetValueOperation("year", "2014"));
+
+            cluster.tickUntil(() -> List.of(ATHENS, BYZANTIUM, CYRENE).stream()
+                    .allMatch(id -> lastLogIndex(cluster, id) == LAST_WRITE));
+            assertEquals(TERM_1_NO_OP, lastLogIndex(cluster, DELPHI));
+            assertEquals(TERM_1_NO_OP, lastLogIndex(cluster, EPHESUS));
+            assertEquals(TERM_1_NO_OP, server(cluster, ATHENS).getCommitIndex(), "athens cannot commit the writes");
+
+            // 3. Athens fails before it commits them.
+            cluster.crashNode(ATHENS);
+
+            // 4. Byzantium is elected for term 2. Only byzantium or cyrene could be: delphi and ephesus miss the
+            //    writes, so their logs are not up to date (§5.4.1).
+            cluster.tickUntil(() -> server(cluster, BYZANTIUM).isLeader());
+            RaftServer leader = server(cluster, BYZANTIUM);
+            assertEquals(2, leader.getCurrentTerm());
+
+            // The writes are term 1 entries on three of five servers, a majority, yet they are not committed:
+            // the new leader cannot commit them by counting replicas, because they are not from its own term.
+            for (int index = FIRST_WRITE; index <= LAST_WRITE; index++) {
+                for (ProcessId id : List.of(BYZANTIUM, CYRENE)) {
+                    assertEquals(1, server(cluster, id).getLogEntry(index).term());
+                }
+            }
+            assertEquals(TERM_1_NO_OP, leader.getCommitIndex());
+
+            // 5. The no-op of the leader's own term is already in its log. Becoming leader and appending it are one
+            //    step, with no tick between: a Raft leader writes to its own log locally, not by sending itself a
+            //    message as a Paxos proposer that broadcasts to every node including itself does. The followers get
+            //    the no-op only through AppendEntries.
+            LogEntry noOp = leader.getLogEntry(TERM_2_NO_OP);
+            assertEquals(2, noOp.term());
+            assertInstanceOf(NoOpOperation.class, noOp.operation());
+
+            // Once the no-op is on a majority it is committed, and every entry before it with it.
+            cluster.tickUntil(() -> leader.getCommitIndex() == TERM_2_NO_OP);
+            cluster.tickUntil(() -> SURVIVORS.stream().allMatch(id ->
+                    "Microservices".equals(server(cluster, id).getValue("title"))
+                            && "Martin".equals(server(cluster, id).getValue("author"))
+                            && "2014".equals(server(cluster, id).getValue("year"))));
         }
     }
 
-    @Test
-    @DisplayName("A new leader commits an entry left over from an earlier term without any client write")
-    void anEntryFromAnEarlierTermCommitsWithoutAClientWrite() throws IOException {
-        // Long enough for the test to place the old entry on every server before any of them starts an election.
-        try (var cluster = Cluster.createSimulated(ALL,
-                (peerIds, processParams) -> new RaftServer(peerIds, processParams, 300))) {
-            var oldLeader = cluster.newClient(ProcessId.of("old-leader"), OldLeaderClient::new);
-            var leftOver = new LogEntry(1, 2, new SetValueOperation("k", "left-over"));
-            for (ProcessId server : ALL) {
-                assertTrue(cluster.tickUntilComplete(oldLeader.replicate(server, 2, leftOver)).success());
-            }
-            ALL.forEach(id -> assertEquals(0, ((RaftServer) cluster.getNode(id)).getCommitIndex()));
+    private static RaftServer server(Cluster cluster, ProcessId id) {
+        return cluster.getNode(id);
+    }
 
-            cluster.tickUntil(() -> ALL.stream().allMatch(
-                    id -> "left-over".equals(((RaftServer) cluster.getNode(id)).getValue("k"))));
-
-            ProcessId leader = ALL.stream().filter(id -> ((RaftServer) cluster.getNode(id)).isLeader())
-                    .findFirst().orElseThrow();
-            RaftServer leaderServer = cluster.getNode(leader);
-            assertEquals(3, leaderServer.getCurrentTerm());
-            assertEquals(3, leaderServer.getLogEntry(2).term(), "the no-op is in the leader's own term");
-            assertTrue(leaderServer.getCommitIndex() >= 2, "the no-op is committed, and the old entry with it");
-        }
+    private static int lastLogIndex(Cluster cluster, ProcessId id) {
+        return server(cluster, id).getLogSize() - 1;
     }
 }
