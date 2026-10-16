@@ -40,11 +40,7 @@ import java.util.UUID;
  */
 public class RaftServer extends Replica {
 
-    // ========== PERSISTENT STATE (Figure 2) ==========
-
-    private int currentTerm = 0;
-    private ProcessId votedFor = null;
-    private final List<LogEntry> log = new ArrayList<>();
+    // ========== WRITE-AHEAD LOG ==========
 
     // What the write-ahead log holds, or is about to hold: the term and vote last appended to it.
     private static final String WAL_FILE = "raft.wal";
@@ -60,6 +56,15 @@ public class RaftServer extends Replica {
     private final java.util.ArrayDeque<WaitingReply> waitingReplies = new java.util.ArrayDeque<>();
     // Highest log index whose record is durable on this server.
     private int durableLastIndex = 0;
+
+    // ========== PERSISTENT STATE (Figure 2) ==========
+    // Persisted by appending each log entry, and every change to currentTerm and votedFor, to the write-ahead log (wal above).
+    private int currentTerm = 0;
+    private ProcessId votedFor = null;
+    // A list, not a map of index to entry as in MultiPaxos. Paxos decides each slot on its own, so its log can have
+    // gaps. A Raft follower appends only right after an entry that matches the leader's (prevLogIndex, prevLogTerm),
+    // so its log is always one contiguous sequence: the last index is size() - 1 and a conflict truncates the tail.
+    private final List<LogEntry> log = new ArrayList<>();
 
     // ========== VOLATILE STATE (all servers) ==========
 
